@@ -1,0 +1,217 @@
+/** `amem` namespace dictionaries — both locales required by DSH locale.register. */
+
+export const NS = "amem";
+
+/** Simplified Chinese (key-set source of truth). */
+export const zh = {
+  panel: "amem",
+  title: "amem",
+  "tab.memories": "记忆",
+  "tab.skills": "能力",
+  "tab.proposals": "提案",
+  "tab.ops": "运维",
+  "tab.config": "配置",
+  "tab.help": "说明",
+  "config.reload": "重新加载",
+  "config.save": "保存",
+  "config.confirmSave":
+    "确认写入 amem.toml？未在表单中展示的段（embedding/privacy）将保留磁盘原值。",
+  "config.saved": "已保存：{path}",
+  "config.section.identity": "身份",
+  "config.section.llm": "LLM",
+  "config.section.recall": "召回",
+  "config.section.promotion": "晋升",
+  "config.section.budget": "整合预算",
+  "config.field.user_id": "用户 ID",
+  "config.help.user_id": "记忆归属的用户标识（identity.user_id）。",
+  "config.field.mode": "LLM 模式",
+  "config.help.mode": "stub=本地桩；external=调用 base_url；host=由宿主提供。",
+  "config.field.base_url": "API Base URL",
+  "config.help.base_url": "external 模式下的 OpenAI 兼容接口根地址；可留空。",
+  "config.field.model": "模型名",
+  "config.help.model": "发给上游的 model 字段，例如 openai/gpt-4.1-mini。",
+  "config.field.api_key": "API Key",
+  "config.help.api_key": "直接写入 amem.toml 的密钥（优先使用）。可留空则回退到下方环境变量。",
+  "config.field.api_key_env": "API Key 环境变量名（可选回退）",
+  "config.help.api_key_env": "当 api_key 为空时，从该环境变量读取密钥。",
+  "config.field.budget_tokens": "召回 token 预算",
+  "config.help.budget_tokens": "单次 context pack 大约可用的 token 上限。",
+  "config.field.l0_items": "L0 条数",
+  "config.help.l0_items": "召回时纳入的 L0（细则/实例）记忆上限。",
+  "config.field.l1_items": "L1 条数",
+  "config.help.l1_items": "召回时纳入的 L1（摘要）记忆上限。",
+  "config.field.instance_to_domain_min_instances": "实例→领域：最少实例数",
+  "config.help.instance_to_domain_min_instances":
+    "同类实例达到该数量才考虑升到领域级。",
+  "config.field.domain_to_global_min_domains": "领域→全局：最少领域数",
+  "config.help.domain_to_global_min_domains":
+    "跨多少个领域出现后才考虑升到全局。",
+  "config.field.domain_to_global_min_instances": "领域→全局：最少实例数",
+  "config.help.domain_to_global_min_instances":
+    "升全局前累计实例数门槛。",
+  "config.field.global_min_lift": "全局最小 lift",
+  "config.help.global_min_lift": "升全局时的最小 lift（可为小数，≥ 0）。",
+  "config.field.max_llm_calls": "最多 LLM 调用",
+  "config.help.max_llm_calls": "单次整合任务允许的最大 LLM 调用次数。",
+  "config.field.max_tokens": "最多 token",
+  "config.help.max_tokens": "单次整合任务的 token 消耗上限。",
+  "config.field.max_proposals": "最多提案数",
+  "config.help.max_proposals": "单次整合最多生成的提案数量。",
+  "config.field.max_minutes": "最长分钟数",
+  "config.help.max_minutes": "单次整合允许运行的最长时间（分钟）。",
+  "config.path": "配置文件：{path}",
+  "config.loadFailed":
+    "无法加载配置（{message}）。请执行 pnpm build && pnpm amem -- install --host dsh 后重启 dsh web。",
+  "config.hintSecrets":
+    "可将 API Key 直接填入下方「API Key」并保存到 amem.toml；也可留空改用环境变量名回退。",
+  "config.hintReload":
+    "保存后新请求会重新读盘；若长期 worker 已缓存配置，可能需重启 dsh web。",
+  "config.hintPrivacy":
+    "privacy / embedding 请用手改 amem.toml；面板保存不会覆盖磁盘上的这些段。",
+  "recall.placeholder": "召回查询",
+  "recall.button": "召回",
+  "refresh.button": "刷新",
+  loading: "加载中…",
+  "forget.button": "遗忘",
+  "forget.confirm": "遗忘记忆 {id}？",
+  "apply.button": "应用",
+  "apply.prompt": "要物化的能力名称？",
+  "meta.score": "分={score}",
+  "ops.sessionPlaceholder": "sessionId（可空=manual）",
+  "ops.doctor": "健康检查",
+  "ops.flush": "冲洗队列",
+  "ops.rebuild": "重建索引",
+  "ops.consolidateDry": "整合（试运行）",
+  "ops.consolidate": "整合（执行）",
+  "ops.compile": "编译到 DSH",
+  "ops.confirmConsolidate": "确认执行整合？可能晋升/降级记忆并生成提案。",
+  "ops.confirmRebuild": "确认重建索引？",
+  "ops.confirmCompile": "确认编译能力到 ~/.dsh/skills？",
+  "ops.result": "结果",
+  "ops.hintProcessedZero": "processed 为 0 时可能表示队列为空或抽取失败。",
+  "help.layersTitle": "三层模型",
+  "help.layersBody":
+    "记忆(L2) → 提案(候选) → 能力(L3 Skill)。自动流程只写记忆与提案；能力必须人工「应用」提案后才会入库。",
+  "help.flowTitle": "推荐流程",
+  "help.flowBody":
+    "1) 会话中沉淀可复用步骤（memory_note / 自动抽取） 2) 跨会话 recall + helpful 反馈 3) 运维「整合」生成提案 4) 提案 Tab「应用」入库 5) 运维「编译到 DSH」写入 ~/.dsh/skills。",
+  "help.tabsTitle": "各 Tab",
+  "help.tabsBody":
+    "记忆：浏览/召回/遗忘。能力：已入库 Skill 列表。提案：候选与应用。运维：doctor/flush/索引/整合/编译。配置：常用 amem.toml。说明：本页。",
+  "help.cliTitle": "与 CLI 对照",
+  "help.cliBody":
+    "健康检查=amem doctor；冲洗队列=amem flush；重建索引=amem rebuild-index；整合=amem consolidate；编译到 DSH=amem compile --target dsh（注意：CLI 默认 target 是 cursor，面板固定 dsh）。",
+  "help.gateTitle": "晋升门槛",
+  "help.gateBody":
+    "自动出提案通常需要 procedure + 足够多实例/helpful。本地打通可用 CLI 加速路径（手改 frontmatter），见仓库 README。",
+} as const;
+
+export type AmemKey = keyof typeof zh;
+
+/** English dictionary, complete against the zh key set. */
+export const en: Record<AmemKey, string> = {
+  panel: "amem",
+  title: "amem",
+  "tab.memories": "Memories",
+  "tab.skills": "Skills",
+  "tab.proposals": "Proposals",
+  "tab.ops": "Ops",
+  "tab.config": "Config",
+  "tab.help": "Guide",
+  "config.reload": "Reload",
+  "config.save": "Save",
+  "config.confirmSave":
+    "Confirm writing amem.toml? Sections not shown in the form (embedding/privacy) keep their on-disk values.",
+  "config.saved": "Saved: {path}",
+  "config.section.identity": "Identity",
+  "config.section.llm": "LLM",
+  "config.section.recall": "Recall",
+  "config.section.promotion": "Promotion",
+  "config.section.budget": "Consolidate budget",
+  "config.field.user_id": "User ID",
+  "config.help.user_id": "User identity for memory ownership (identity.user_id).",
+  "config.field.mode": "LLM mode",
+  "config.help.mode": "stub=local stub; external=call base_url; host=provided by host.",
+  "config.field.base_url": "API base URL",
+  "config.help.base_url": "OpenAI-compatible API root for external mode; may be empty.",
+  "config.field.model": "Model",
+  "config.help.model": "Upstream model id, e.g. openai/gpt-4.1-mini.",
+  "config.field.api_key": "API Key",
+  "config.help.api_key":
+    "Secret written into amem.toml (preferred). Leave empty to fall back to the env var below.",
+  "config.field.api_key_env": "API key env var (optional fallback)",
+  "config.help.api_key_env":
+    "When api_key is empty, read the key from this environment variable.",
+  "config.field.budget_tokens": "Recall token budget",
+  "config.help.budget_tokens": "Approx. token budget for one context pack.",
+  "config.field.l0_items": "L0 item count",
+  "config.help.l0_items": "Max L0 (instance) memories included in recall.",
+  "config.field.l1_items": "L1 item count",
+  "config.help.l1_items": "Max L1 (summary) memories included in recall.",
+  "config.field.instance_to_domain_min_instances": "Instance→domain: min instances",
+  "config.help.instance_to_domain_min_instances":
+    "Min similar instances before considering domain promotion.",
+  "config.field.domain_to_global_min_domains": "Domain→global: min domains",
+  "config.help.domain_to_global_min_domains":
+    "How many domains must see it before considering global promotion.",
+  "config.field.domain_to_global_min_instances": "Domain→global: min instances",
+  "config.help.domain_to_global_min_instances":
+    "Cumulative instance threshold before global promotion.",
+  "config.field.global_min_lift": "Global min lift",
+  "config.help.global_min_lift": "Minimum lift for global promotion (float, ≥ 0).",
+  "config.field.max_llm_calls": "Max LLM calls",
+  "config.help.max_llm_calls": "Max LLM calls allowed in one consolidate run.",
+  "config.field.max_tokens": "Max tokens",
+  "config.help.max_tokens": "Token budget for one consolidate run.",
+  "config.field.max_proposals": "Max proposals",
+  "config.help.max_proposals": "Max proposals one consolidate run may create.",
+  "config.field.max_minutes": "Max minutes",
+  "config.help.max_minutes": "Wall-clock minutes allowed for one consolidate run.",
+  "config.path": "Config file: {path}",
+  "config.loadFailed":
+    "Failed to load config ({message}). Run pnpm build && pnpm amem -- install --host dsh, then restart dsh web.",
+  "config.hintSecrets":
+    "You can paste the API Key into the field below and save it in amem.toml, or leave it empty and use the env var fallback.",
+  "config.hintReload":
+    "New requests re-read disk after save; long-lived workers that cached config may need a dsh web restart.",
+  "config.hintPrivacy":
+    "Edit privacy / embedding manually in amem.toml; panel saves do not overwrite those on-disk sections.",
+  "recall.placeholder": "recall query",
+  "recall.button": "Recall",
+  "refresh.button": "Refresh",
+  loading: "Loading…",
+  "forget.button": "Forget",
+  "forget.confirm": "Forget memory {id}?",
+  "apply.button": "Apply",
+  "apply.prompt": "Skill name to materialize?",
+  "meta.score": "score={score}",
+  "ops.sessionPlaceholder": "sessionId (empty = manual)",
+  "ops.doctor": "Doctor",
+  "ops.flush": "Flush queue",
+  "ops.rebuild": "Rebuild index",
+  "ops.consolidateDry": "Consolidate (dry run)",
+  "ops.consolidate": "Consolidate (run)",
+  "ops.compile": "Compile to DSH",
+  "ops.confirmConsolidate":
+    "Confirm consolidate? May promote/demote memories and create proposals.",
+  "ops.confirmRebuild": "Confirm rebuild index?",
+  "ops.confirmCompile": "Confirm compile skills to ~/.dsh/skills?",
+  "ops.result": "Result",
+  "ops.hintProcessedZero":
+    "When processed is 0, the queue may be empty or extraction failed.",
+  "help.layersTitle": "Three-layer model",
+  "help.layersBody":
+    "Memory (L2) → Proposals (candidates) → Skills (L3). Automation writes memories and proposals only; skills enter the library after you Apply a proposal.",
+  "help.flowTitle": "Recommended flow",
+  "help.flowBody":
+    "1) Capture reusable steps in session (memory_note / auto-extract) 2) Cross-session recall + helpful feedback 3) Ops Consolidate to create proposals 4) Proposals tab Apply to library 5) Ops Compile to DSH writes ~/.dsh/skills.",
+  "help.tabsTitle": "Tabs",
+  "help.tabsBody":
+    "Memories: browse/recall/forget. Skills: library list. Proposals: candidates and apply. Ops: doctor/flush/index/consolidate/compile. Config: common amem.toml. Guide: this page.",
+  "help.cliTitle": "CLI reference",
+  "help.cliBody":
+    "Doctor=amem doctor; flush queue=amem flush; rebuild index=amem rebuild-index; consolidate=amem consolidate; compile to DSH=amem compile --target dsh (CLI default target is cursor; panel uses dsh).",
+  "help.gateTitle": "Promotion gate",
+  "help.gateBody":
+    "Auto proposals usually need procedure plus enough instances/helpful. For local end-to-end, use CLI shortcuts (edit frontmatter); see repo README.",
+};

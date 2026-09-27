@@ -1,0 +1,22 @@
+{
+  "name": "amem",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Cross-session agent memory with capability promotion",
+  "packageManager": "pnpm@9.15.0",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "pnpm -r run build",
+    "test": "pnpm -r run test",
+    "accept": "node scripts/accept.mjs",
+    "accept:p0": "node scripts/accept-p0.mjs",
+    "accept:p1": "node scripts/accept-p1.mjs",
+    "accept:p2": "node scripts/accept-p2.mjs",
+    "amem": "node packages/cli/dist/bin.js"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.10",
+    "typescript": "^5.8.2",
+    "vitest": "^3.0.9"
+  }
+}
