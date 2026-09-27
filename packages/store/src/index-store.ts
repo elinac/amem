@@ -120,10 +120,10 @@ export class IndexStore {
     } catch {
       const stmt = this.db.prepare(
         `SELECT id, 0 as rank FROM mem
-         WHERE title LIKE ? OR applies_when LIKE ? OR body LIKE ?
+         WHERE title LIKE ? ESCAPE '\\' OR applies_when LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\'
          LIMIT ?`,
       );
-      const like = `%${query}%`;
+      const like = `%${query.replace(/[\\%_]/g, "\\$&")}%`;
       return stmt.all(like, like, like, limit) as { id: string; rank: number }[];
     }
   }

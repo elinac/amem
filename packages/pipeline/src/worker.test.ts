@@ -39,4 +39,22 @@ describe("processQueue", () => {
     await expect(processQueue(home)).resolves.toBe(0);
   });
 
+  it("skips dot-claim leftovers and sanitizes unsafe session ids", async () => {
+    const home = setupHome();
+    const dir = join(home, "queue");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, ".claim-1-2-flush-old.json"),
+      JSON.stringify({ type: "flush", sessionId: "old" }),
+    );
+    writeFileSync(
+      join(dir, "flush-evil-1.json"),
+      JSON.stringify({ type: "flush", sessionId: "../../../../tmp/evil" }),
+    );
+    await expect(processQueue(home)).resolves.toBe(1);
+    expect(extractSession).toHaveBeenCalledTimes(1);
+    const sid = vi.mocked(extractSession).mock.calls[0]![1];
+    expect(sid).toMatch(/^sid_[a-f0-9]{12}$/);
+    expect(sid).not.toContain("..");
+  });
 });

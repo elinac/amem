@@ -98,10 +98,11 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const name = req.params.name;
   const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-  const fn = (tools as Record<string, (a: never) => Promise<unknown>>)[name];
-  if (!fn) {
+  const table = tools as Record<string, (a: never) => Promise<unknown>>;
+  if (!Object.hasOwn(table, name)) {
     return { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true };
   }
+  const fn = table[name]!;
   return (await fn(args as never)) as { content: { type: "text"; text: string }[] };
 });
 

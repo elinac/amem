@@ -1,5 +1,6 @@
 // Production Cursor hook: normalize → spool → queue flush on sessionEnd; fail-open.
 import { appendFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -7,13 +8,23 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const event = process.argv[2] ?? "unknown";
 const home = process.env.AMEM_HOME ?? join(homedir(), ".amem");
+const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
+
+function sanitizeId(id) {
+  const s = String(id ?? "").trim();
+  if (SAFE_ID.test(s)) return s;
+  return `sid_${createHash("sha256").update(s || "empty").digest("hex").slice(0, 12)}`;
+}
 
 function respond() {
   process.stdout.write(event === "beforeSubmitPrompt" ? '{"continue":true}' : "{}");
   process.exit(0);
 }
 
+let settled = false;
 async function run(rawText) {
+  if (settled) return;
+  settled = true;
   try {
     const body = rawText.replace(/^\uFEFF/, "").trim();
     let raw = {};
@@ -28,7 +39,7 @@ async function run(rawText) {
     try {
       const adapterPath = join(
         dirname(fileURLToPath(import.meta.url)),
-        "../../../adapter-cursor/dist/index.js",
+        "../dist/index.js",
       );
       if (existsSync(adapterPath)) {
         const mod = await import(pathToFileURL(adapterPath).href);
@@ -38,8 +49,7 @@ async function run(rawText) {
       events = [];
     }
 
-    const sessionId =
-      (raw.conversation_id || raw.session_id || "unknown");
+    const sessionId = sanitizeId(raw.conversation_id || raw.session_id || "unknown");
     mkdirSync(join(home, "spool"), { recursive: true });
     const spool = join(home, "spool", `${sessionId}.jsonl`);
     for (const ev of events) {
@@ -61,7 +71,7 @@ async function run(rawText) {
         JSON.stringify({ type: "flush", sessionId }),
       );
       // detached worker best-effort
-      const cli = join(dirname(fileURLToPath(import.meta.url)), "../../../cli/dist/bin.js");
+      const cli = join(dirname(fileURLToPath(import.meta.url)), "../../cli/dist/bin.js");
       if (existsSync(cli)) {
         const child = spawn(process.execPath, [cli, "worker"], {
           detached: true,
@@ -78,16 +88,21 @@ async function run(rawText) {
 }
 
 let buf = "";
-const guard = setTimeout(() => run(buf), 1500);
+const guard = setTimeout(() => {
+  void run(buf);
+}, 1500);
 process.stdin.setEncoding("utf8");
 process.stdin.on("data", (c) => {
   buf += c;
 });
 process.stdin.on("end", () => {
   clearTimeout(guard);
-  run(buf);
+  void run(buf);
 });
 process.stdin.on("error", () => {
   clearTimeout(guard);
-  respond();
+  if (!settled) {
+    settled = true;
+    respond();
+  }
 });

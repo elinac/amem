@@ -90,8 +90,10 @@ export function buildContextPack(opts: {
   situation: Situation;
   sessionId: string;
   host?: HostId;
+  /** When provided, skip a second FTS rebuild/recall. */
+  hits?: { memory: MemoryRecord; score: number }[];
 }): ContextPack {
-  const hits = recall(opts.home, opts.situation, opts.cfg.recall.l0_items);
+  const hits = opts.hits ?? recall(opts.home, opts.situation, opts.cfg.recall.l0_items);
   const budget = opts.cfg.recall.budget_tokens;
   const items: ContextPack["items"] = [];
   const dropped: ContextPack["dropped"] = [];

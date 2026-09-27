@@ -50,23 +50,26 @@ function format(t: Translate, key: AmemKey, params?: Record<string, string | num
   if (!params) return raw;
   // Fallback if the seat returns the template without substituting.
   return raw.replace(/\{(\w+)\}/g, (_, name: string) =>
-    params[name] != null ? String(params[name]) : `{${name}}`,
+    params[name] !== null && params[name] !== undefined ? String(params[name]) : `{${name}}`,
   );
 }
 
 async function api(path: string, init?: RequestInit): Promise<unknown> {
+  const { headers: initHeaders, ...rest } = init ?? {};
   const res = await fetch(`/amem-api${path}`, {
     credentials: "same-origin",
-    headers: { "content-type": "application/json", ...(init?.headers ?? {}) },
-    ...init,
+    ...rest,
+    headers: { "content-type": "application/json", ...(initHeaders ?? {}) },
   });
   const body = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error((body as { message?: string }).message ?? res.statusText);
   return body;
 }
 
+const fallbackTranslate: Translate = (k) => k;
+
 function AmemPanel({ t: translate }: AmemPanelProps) {
-  const t: Translate = translate ?? ((k) => k);
+  const t: Translate = translate ?? fallbackTranslate;
   const [tab, setTab] = useState<Tab>("memories");
   const [items, setItems] = useState<unknown[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -192,19 +195,28 @@ function AmemPanel({ t: translate }: AmemPanelProps) {
 
   const onForget = async (id: string) => {
     if (!confirm(format(t, "forget.confirm", { id }))) return;
-    await api(`/memories/${encodeURIComponent(id)}`, { method: "DELETE" });
-    await load();
+    setError(null);
+    try {
+      await api(`/memories/${encodeURIComponent(id)}`, { method: "DELETE" });
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const onApply = async (id: string) => {
     const skillName = prompt(format(t, "apply.prompt"));
     if (!skillName) return;
-    await api(`/proposals/${encodeURIComponent(id)}/apply`, {
-      method: "POST",
-      body: JSON.stringify({ skillName }),
-    });
-    setTab("skills");
-    await load();
+    setError(null);
+    try {
+      await api(`/proposals/${encodeURIComponent(id)}/apply`, {
+        method: "POST",
+        body: JSON.stringify({ skillName }),
+      });
+      setTab("skills");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
   };
 
   const tabLabel = (id: Tab): string => format(t, `tab.${id}` as AmemKey);
@@ -811,6 +823,7 @@ function AmemPanel({ t: translate }: AmemPanelProps) {
               format(t, "forget.button"),
             ),
           tab === "proposals" &&
+            row.id &&
             createElement(
               "button",
               { type: "button", onClick: () => void onApply(String(row.id)) },

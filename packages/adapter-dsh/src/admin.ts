@@ -2,6 +2,7 @@ import { existsSync, readFileSync, readdirSync } from "node:fs";
 import {
   amemHome as defaultAmemHome,
   extractEditableConfigPatch,
+  isSafeId,
   loadConfig,
   mergeConfigOverlay,
   newId,
@@ -121,8 +122,11 @@ export function createAdmin(home = defaultAmemHome()) {
       };
       store.write(rec, "human");
       const idx = new IndexStore(home);
-      idx.rebuild(store);
-      idx.close();
+      try {
+        idx.rebuild(store);
+      } finally {
+        idx.close();
+      }
       return { ok: true, data: { id, status: rec.status } };
     },
 
@@ -168,7 +172,7 @@ export function createAdmin(home = defaultAmemHome()) {
     async flush(sessionId?: string | null): Promise<AdminResult> {
       const sid =
         sessionId == null || !String(sessionId).trim() ? "manual" : String(sessionId).trim();
-      if (!/^[A-Za-z0-9._-]{1,128}$/.test(sid)) {
+      if (!isSafeId(sid)) {
         return { ok: false, error: "bad_request", message: "invalid sessionId", status: 400 };
       }
       const file = enqueueFlush(home, sid);
@@ -178,9 +182,12 @@ export function createAdmin(home = defaultAmemHome()) {
 
     rebuildIndex(): AdminResult {
       const idx = new IndexStore(home);
-      const n = idx.rebuild(new MemoryStore(home));
-      idx.close();
-      return { ok: true, data: { indexed: n } };
+      try {
+        const n = idx.rebuild(new MemoryStore(home));
+        return { ok: true, data: { indexed: n } };
+      } finally {
+        idx.close();
+      }
     },
 
     consolidate(dryRun = false): AdminResult {

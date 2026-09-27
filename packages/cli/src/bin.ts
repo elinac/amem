@@ -292,7 +292,10 @@ async function main(): Promise<void> {
 
   if (cmd === "compile") {
     const tIdx = argv.indexOf("--target");
-    const target = (argv[tIdx + 1] ?? "cursor") as "cursor" | "claude-code" | "dsh";
+    const target = (tIdx >= 0 ? (argv[tIdx + 1] ?? "cursor") : "cursor") as
+      | "cursor"
+      | "claude-code"
+      | "dsh";
     if (target !== "cursor" && target !== "claude-code" && target !== "dsh") {
       throw new Error("compile --target must be cursor|claude-code|dsh");
     }
@@ -305,7 +308,7 @@ async function main(): Promise<void> {
 
   if (cmd === "ingest-transcript") {
     const hostIdx = argv.indexOf("--host");
-    const host = argv[hostIdx + 1] ?? "cursor";
+    const host = hostIdx >= 0 ? (argv[hostIdx + 1] ?? "cursor") : "cursor";
     const dIdx = argv.indexOf("--dir");
     let dir = dIdx >= 0 ? argv[dIdx + 1] : undefined;
     if (!dir && host === "cursor") {
@@ -350,7 +353,8 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "install") {
-    const host = argv[argv.indexOf("--host") + 1] ?? "cursor";
+    const hostIdx = argv.indexOf("--host");
+    const host = hostIdx >= 0 ? (argv[hostIdx + 1] ?? "cursor") : "cursor";
     if (host === "dsh") {
       installDsh(home);
       return;

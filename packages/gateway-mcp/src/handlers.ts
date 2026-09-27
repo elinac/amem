@@ -31,13 +31,14 @@ export function createToolHandlers(home = amemHome()) {
         workspaceRoot: args.workspace_root,
       });
       if (args.task_type) sit.task_type = args.task_type;
+      const hits = recall(home, sit, args.k ?? c.recall.l0_items);
       const pack = buildContextPack({
         home,
         cfg: c,
         situation: sit,
         sessionId: args.session_id ?? "mcp",
+        hits,
       });
-      const hits = recall(home, sit, args.k ?? c.recall.l0_items);
       return text({
         pack_id: pack.pack_id,
         l0: hits.map((h) => ({

@@ -1,4 +1,4 @@
-import { readFileSync, existsSync, writeFileSync, renameSync } from "node:fs";
+import { readFileSync, existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
 import { amemHome, paths } from "./paths.js";
 
 export interface AmemConfig {
@@ -492,6 +492,15 @@ export function writeAmemConfigFile(
   let text = configToToml(cfg);
   text = preservePrivacyTomlSection(disk, text);
   const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
-  writeFileSync(tmp, text, "utf8");
-  renameSync(tmp, configPath);
+  try {
+    writeFileSync(tmp, text, "utf8");
+    renameSync(tmp, configPath);
+  } catch (e) {
+    try {
+      if (existsSync(tmp)) unlinkSync(tmp);
+    } catch {
+      /* ignore cleanup errors */
+    }
+    throw e;
+  }
 }

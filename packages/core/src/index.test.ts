@@ -6,9 +6,11 @@ import {
   canPromoteKind,
   containsSecrets,
   evidenceQuotesValid,
+  isSafeId,
   normalizeWorkspaceRoot,
   redactDeep,
   redactString,
+  sanitizeId,
 } from "./index.js";
 
 describe("normalizeWorkspaceRoot", () => {
@@ -16,6 +18,22 @@ describe("normalizeWorkspaceRoot", () => {
     expect(normalizeWorkspaceRoot("/d:/dev/workspaces/QCoder/NoteZ")).toBe(
       "D:\\dev\\workspaces\\QCoder\\NoteZ",
     );
+  });
+});
+
+describe("sanitizeId", () => {
+  it("keeps allowlisted ids", () => {
+    expect(sanitizeId("sess-1.2_ok")).toBe("sess-1.2_ok");
+    expect(isSafeId("sess-1.2_ok")).toBe(true);
+  });
+
+  it("maps path traversal to a safe hash token", () => {
+    const out = sanitizeId("../../../../tmp/evil");
+    expect(isSafeId(out)).toBe(true);
+    expect(out.startsWith("sid_")).toBe(true);
+    expect(out).not.toContain("..");
+    expect(out).not.toContain("/");
+    expect(out).not.toContain("\\");
   });
 });
 

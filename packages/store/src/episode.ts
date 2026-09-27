@@ -15,13 +15,14 @@ import {
   CanonicalEventSchema,
   newId,
   paths,
+  sanitizeId,
 } from "@amem/core";
 
 export class EpisodeStore {
   constructor(private readonly home: string) {}
 
   spoolPath(sessionId: string): string {
-    return join(paths(this.home).spool, `${sessionId}.jsonl`);
+    return join(paths(this.home).spool, `${sanitizeId(sessionId)}.jsonl`);
   }
 
   appendSpool(sessionId: string, event: CanonicalEvent): void {

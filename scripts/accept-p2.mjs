@@ -46,45 +46,58 @@ try {
 
 try {
   const home = mkdtempSync(join(tmpdir(), "amem-p2-"));
-  const env = { AMEM_HOME: home };
-  sh(["init"], env);
-  const { MemoryStore } = await import(pathToFileURL(join(root, "packages/store/dist/index.js")).href);
-  const store = new MemoryStore(home);
-  store.write(
-    {
-      id: "mem_proc",
-      kind: "procedure",
-      title: "fix port conflicts",
-      content: "1. find process\n2. kill or change port\n3. restart",
-      applies_when: "dev server port in use",
-      scope: { level: "domain", tags: { user: "u", instances: ["a", "b", "c"] } },
-      trust: "T2",
-      status: "active",
-      evidence: {
-        episodes: ["e1", "e2", "e3"],
-        count: 3,
-        distinct_instances: 3,
-        distinct_domains: 1,
+  try {
+    const env = { AMEM_HOME: home };
+    sh(["init"], env);
+    const { MemoryStore } = await import(pathToFileURL(join(root, "packages/store/dist/index.js")).href);
+    const store = new MemoryStore(home);
+    store.write(
+      {
+        id: "mem_proc",
+        kind: "procedure",
+        title: "fix port conflicts",
+        content: "1. find process\n2. kill or change port\n3. restart",
+        applies_when: "dev server port in use",
+        scope: { level: "domain", tags: { user: "u", instances: ["a", "b", "c"] } },
+        trust: "T2",
+        status: "active",
+        evidence: {
+          episodes: ["e1", "e2", "e3"],
+          count: 3,
+          distinct_instances: 3,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 12, adopted: 8, helpful: 5, harmful: 0, lift: 0.2 },
+        validity: { depends_on: [], valid_from: "2026-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
       },
-      stats: { recalled: 12, adopted: 8, helpful: 5, harmful: 0, lift: 0.2 },
-      validity: { depends_on: [], valid_from: "2026-01-01" },
-      created_by: "t",
-      updated_at: new Date().toISOString(),
-    },
-    "pipeline",
-  );
-  const out = sh(["consolidate"], env);
-  const r = JSON.parse(out.stdout);
-  if (!r.proposals?.includes("mem_proc")) throw new Error(`no proposal: ${out.stdout}`);
-  sh(["review", "--apply", "mem_proc", "fix-port"], env);
-  const skillOut = join(home, "compiled-skills");
-  mkdirSync(skillOut, { recursive: true });
-  const compiled = sh(["compile", "--target", "cursor", "--out", skillOut], env);
-  const cj = JSON.parse(compiled.stdout);
-  if (!cj.written?.length) throw new Error("compile wrote nothing");
-  if (!existsSync(join(skillOut, "fix-port", "SKILL.md"))) throw new Error("skill missing");
-  rmSync(home, { recursive: true, force: true });
-  pass("procedure → proposal → apply → compile");
+      "pipeline",
+    );
+    const out = sh(["consolidate"], env);
+    let r;
+    try {
+      r = JSON.parse(out.stdout);
+    } catch {
+      throw new Error(`consolidate stdout not JSON: ${out.stdout}`);
+    }
+    if (!r.proposals?.includes("mem_proc")) throw new Error(`no proposal: ${out.stdout}`);
+    sh(["review", "--apply", "mem_proc", "fix-port"], env);
+    const skillOut = join(home, "compiled-skills");
+    mkdirSync(skillOut, { recursive: true });
+    const compiled = sh(["compile", "--target", "cursor", "--out", skillOut], env);
+    let cj;
+    try {
+      cj = JSON.parse(compiled.stdout);
+    } catch {
+      throw new Error(`compile stdout not JSON: ${compiled.stdout}`);
+    }
+    if (!cj.written?.length) throw new Error("compile wrote nothing");
+    if (!existsSync(join(skillOut, "fix-port", "SKILL.md"))) throw new Error("skill missing");
+    pass("procedure → proposal → apply → compile");
+  } finally {
+    rmSync(home, { recursive: true, force: true });
+  }
 } catch (e) { fail("capability pipeline", e); }
 
 try {
