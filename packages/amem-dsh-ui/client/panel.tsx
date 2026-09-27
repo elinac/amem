@@ -720,6 +720,21 @@ function AmemPanel({ t: translate }: AmemPanelProps) {
       items.map((raw, i) => {
         const row = raw as Record<string, unknown>;
         const id = String(row.id ?? row.name ?? i);
+        const title = String(row.title ?? row.name ?? id);
+        const subtitle =
+          row.applies_when != null && String(row.applies_when).trim()
+            ? String(row.applies_when)
+            : row.summary != null && String(row.summary).trim()
+              ? String(row.summary)
+              : row.description != null && String(row.description).trim()
+                ? String(row.description)
+                : "";
+        const preview =
+          row.content != null && String(row.content).trim()
+            ? String(row.content).slice(0, 200)
+            : row.summary != null && String(row.summary).trim() && subtitle !== String(row.summary)
+              ? String(row.summary).slice(0, 200)
+              : "";
         return createElement(
           "li",
           {
@@ -734,27 +749,59 @@ function AmemPanel({ t: translate }: AmemPanelProps) {
           },
           createElement(
             "div",
-            null,
-            createElement("strong", null, String(row.title ?? row.name ?? id)),
+            { style: { minWidth: 0, flex: 1 } },
+            createElement("strong", null, title),
             createElement(
               "div",
-              { style: { fontSize: 12, opacity: 0.75 } },
+              { style: { fontSize: 12, opacity: 0.75, marginTop: 2 } },
               [
                 row.kind,
+                row.level,
                 row.trust,
                 row.status,
                 row.version,
                 row.score != null ? format(t, "meta.score", { score: String(row.score) }) : null,
+                row.helpful != null ? `helpful=${row.helpful}` : null,
               ]
                 .filter(Boolean)
                 .join(" · "),
             ),
-            row.content != null &&
-              createElement(
-                "div",
-                { style: { fontSize: 12, marginTop: 4 } },
-                String(row.content).slice(0, 200),
-              ),
+            subtitle
+              ? createElement(
+                  "div",
+                  { style: { fontSize: 12, marginTop: 4, lineHeight: 1.4 } },
+                  subtitle,
+                )
+              : null,
+            preview
+              ? createElement(
+                  "div",
+                  {
+                    style: {
+                      fontSize: 12,
+                      marginTop: 4,
+                      opacity: 0.85,
+                      lineHeight: 1.4,
+                      whiteSpace: "pre-wrap",
+                    },
+                  },
+                  preview,
+                )
+              : null,
+            title !== id
+              ? createElement(
+                  "div",
+                  {
+                    style: {
+                      fontSize: 11,
+                      marginTop: 4,
+                      opacity: 0.55,
+                      fontFamily: "ui-monospace, monospace",
+                    },
+                  },
+                  id,
+                )
+              : null,
           ),
           tab === "memories" &&
             row.id &&

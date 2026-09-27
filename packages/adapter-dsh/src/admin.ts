@@ -42,6 +42,8 @@ export function createAdmin(home = defaultAmemHome()) {
             trust: m.trust,
             status: m.status,
             title: m.title,
+            applies_when: m.applies_when,
+            content: m.content.slice(0, 200),
             helpful: m.stats.helpful,
             harmful: m.stats.harmful,
             updated_at: m.updated_at,

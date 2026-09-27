@@ -24,7 +24,40 @@ export type ProposalRow = {
   id: string;
   hasProposalMd: boolean;
   title: string;
+  summary: string;
 };
+
+function skillFrontmatterAndBody(text: string): {
+  description: string;
+  name: string;
+  body: string;
+} {
+  // Line-oriented: opening ---, then head until a line that is exactly ---,
+  // then the remainder is body (body may contain --- safely).
+  const normalized = text.replace(/^\uFEFF/, "");
+  const lines = normalized.split(/\r?\n/);
+  if (lines[0]?.trim() !== "---") {
+    return { description: "", name: "", body: normalized.trim() };
+  }
+  let close = -1;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]!.trim() === "---") {
+      close = i;
+      break;
+    }
+  }
+  if (close < 0) {
+    return { description: "", name: "", body: normalized.trim() };
+  }
+  const head = lines.slice(1, close).join("\n");
+  const body = lines.slice(close + 1).join("\n").trim();
+  const description = head.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? "";
+  const name = head.match(/^name:\s*(.+)$/m)?.[1]?.trim() ?? "";
+  return { description, name, body };
+}
+
+/** @internal exported for unit tests */
+export const _skillFrontmatterAndBodyForTest = skillFrontmatterAndBody;
 
 export function listSkillsData(home: string): SkillRow[] {
   const dir = join(paths(home).capabilities, "skills");
@@ -68,15 +101,19 @@ export function listProposalsData(home: string): ProposalRow[] {
       const skill = join(dir, id, "SKILL.md");
       const proposal = join(dir, id, "proposal.md");
       let title = id;
+      let summary = "";
       if (existsSync(skill)) {
         const text = readFileSync(skill, "utf8");
-        const nm = text.match(/^name:\s*(.+)$/m) || text.match(/^description:\s*(.+)$/m);
-        if (nm) title = nm[1]!.trim();
+        const parsed = skillFrontmatterAndBody(text);
+        // Prefer human description over name (often mem_id).
+        title = parsed.description || parsed.name || id;
+        summary = parsed.body.replace(/\s+/g, " ").slice(0, 200);
       }
       return {
         id,
         hasProposalMd: existsSync(proposal),
         title,
+        summary,
       };
     });
 }
