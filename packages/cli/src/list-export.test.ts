@@ -1,11 +1,24 @@
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, existsSync } from "node:fs";
+import {
+  mkdtempSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { newId, type MemoryRecord } from "@amem/core";
+import { newId, paths, type MemoryRecord } from "@amem/core";
 import { MemoryStore } from "@amem/store";
 import { runList } from "./list.js";
 import { runExport } from "./export.js";
+import {
+  parseDurationMs,
+  runAuthIssue,
+  runAuthList,
+  runAuthRevoke,
+} from "./bin.js";
 
 const homes: string[] = [];
 afterEach(() => {
@@ -56,5 +69,58 @@ describe("list + export", () => {
     expect(r.items).toContain("skills/fix-port");
     expect(r.items.some((i) => i.startsWith("memories/"))).toBe(true);
     expect(existsSync(zip)).toBe(true);
+  });
+});
+
+describe("auth cli", () => {
+  let home: string;
+
+  afterEach(() => {
+    if (home) {
+      try {
+        rmSync(home, { recursive: true, force: true });
+      } catch {
+        /* ignore */
+      }
+    }
+  });
+
+  function setup(): string {
+    home = mkdtempSync(join(tmpdir(), "amem-cli-auth-"));
+    mkdirSync(paths(home).auth, { recursive: true });
+    return home;
+  }
+
+  it("parses m/h/d and rejects invalid durations", () => {
+    expect(parseDurationMs("30m")).toBe(30 * 60_000);
+    expect(parseDurationMs("8h")).toBe(8 * 3_600_000);
+    expect(parseDurationMs("1d")).toBe(86_400_000);
+    expect(parseDurationMs("365d")).toBe(365 * 86_400_000);
+
+    expect(() => parseDurationMs("0m")).toThrow();
+    expect(() => parseDurationMs("-1h")).toThrow();
+    expect(() => parseDurationMs("366d")).toThrow();
+    expect(() => parseDurationMs("8")).toThrow();
+    expect(() => parseDurationMs("abc")).toThrow();
+  });
+
+  it("issues a token and list/revoke work", () => {
+    home = setup();
+    const { token, record } = runAuthIssue(home, "dsh", "memory:read,config:read", "8h");
+    expect(token).toBeTruthy();
+    expect(record.scopes).toEqual(["memory:read", "config:read"]);
+
+    const raw = readFileSync(paths(home).dshTokens, "utf8");
+    expect(raw).not.toContain(token);
+
+    const list = runAuthList(home);
+    expect(list).toHaveLength(1);
+    expect(list[0]!.id).toBe(record.id);
+    expect(list[0]!).not.toHaveProperty("hash");
+
+    const revoked = runAuthRevoke(home, record.id);
+    expect(revoked).toBe(true);
+    expect(runAuthList(home)[0]!.revokedAt).toBeTruthy();
+    expect(runAuthRevoke(home, "missing")).toBe(false);
   });
 });
