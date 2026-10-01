@@ -49,7 +49,7 @@ type TokenFile = {
   tokens: InternalTokenRecord[];
 };
 
-const ALL_SCOPES: DshAdminScope[] = [
+export const ALL_DSH_ADMIN_SCOPES: DshAdminScope[] = [
   "memory:read",
   "memory:forget",
   "memory:resolve-conflict",
@@ -74,7 +74,7 @@ function validateScopes(scopes: DshAdminScope[]): void {
   }
   const seen = new Set<string>();
   for (const s of scopes) {
-    if (!ALL_SCOPES.includes(s)) {
+    if (!ALL_DSH_ADMIN_SCOPES.includes(s)) {
       throw new Error(`unknown scope: ${s}`);
     }
     if (seen.has(s)) {

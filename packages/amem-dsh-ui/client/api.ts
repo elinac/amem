@@ -94,8 +94,14 @@ export type ListMemoryFilters = {
 export type AuthState =
   | { kind: "locked" }
   | { kind: "unlocking" }
-  | { kind: "ready"; csrf: string; scopes: string[]; expiresAt: string }
+  | { kind: "ready"; csrf: string; scopes: string[]; expiresAt: string; authEnabled: boolean }
   | { kind: "error"; message: string };
+
+export function authStateForMode(authEnabled: boolean, scopes: string[] = []): AuthState {
+  return authEnabled
+    ? { kind: "locked" }
+    : { kind: "ready", csrf: "", scopes, expiresAt: "", authEnabled: false };
+}
 
 type RpcEnvelope = {
   id: string;
@@ -200,7 +206,24 @@ export async function login(bearer: string): Promise<AuthState> {
     csrf: body.csrfToken,
     scopes: body.scopes ?? [],
     expiresAt: body.expiresAt ?? "",
+    authEnabled: true,
   };
+}
+
+export async function getAuthStatus(): Promise<AuthState> {
+  try {
+    const body = (await api("/auth/status")) as {
+      ok?: boolean;
+      authEnabled?: boolean;
+      scopes?: string[];
+    };
+    if (body.ok !== true || typeof body.authEnabled !== "boolean") {
+      return { kind: "error", message: "无法读取面板认证模式" };
+    }
+    return authStateForMode(body.authEnabled, body.scopes ?? []);
+  } catch {
+    return { kind: "error", message: "无法连接到 amem 服务" };
+  }
 }
 
 export async function refreshCsrf(): Promise<AuthState> {
@@ -219,6 +242,7 @@ export async function refreshCsrf(): Promise<AuthState> {
     csrf: body.csrfToken,
     scopes: currentScopes,
     expiresAt: body.expiresAt ?? "",
+    authEnabled: true,
   };
 }
 

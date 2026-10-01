@@ -46,6 +46,7 @@ export interface AmemConfig {
       allowed_origins: string[];
       session_ttl_minutes: number;
       auth_failure_limit: number;
+      auth_enabled: boolean;
     };
     auto_inject: boolean;
   };
@@ -83,6 +84,7 @@ export function defaultConfig(userId = "local"): AmemConfig {
         allowed_origins: ["http://127.0.0.1", "http://localhost"],
         session_ttl_minutes: 480,
         auth_failure_limit: 8,
+        auth_enabled: false,
       },
       auto_inject: false,
     },
@@ -312,6 +314,7 @@ auto_inject = ${cfg.dsh.auto_inject}
 allowed_origins = ${formatTomlStringArray(cfg.dsh.admin.allowed_origins)}
 session_ttl_minutes = ${cfg.dsh.admin.session_ttl_minutes}
 auth_failure_limit = ${cfg.dsh.admin.auth_failure_limit}
+auth_enabled = ${cfg.dsh.admin.auth_enabled}
 `;
 }
 

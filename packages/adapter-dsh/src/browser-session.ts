@@ -1,5 +1,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import type { DshAdminScope, DshTokenStore, VerifiedToken } from "./auth-store.js";
+import {
+  ALL_DSH_ADMIN_SCOPES,
+  type DshAdminScope,
+  type DshTokenStore,
+  type VerifiedToken,
+} from "./auth-store.js";
 
 export type LoginInput = {
   bearer: string;
@@ -159,6 +164,16 @@ export class BrowserSessionManager {
       return { ok: false, error: "unauthenticated" };
     }
     return { ok: true, tokenId: session.tokenId, scopes: session.scopes };
+  }
+
+  authorizeLocal(required: DshAdminScope[], meta: RequestMeta): AuthResult {
+    if (!this.validateOriginHost(meta)) {
+      return { ok: false, error: "unauthenticated" };
+    }
+    if (isMutating(required) && !this.validateSecFetchSite(meta)) {
+      return { ok: false, error: "unauthenticated" };
+    }
+    return { ok: true, tokenId: "local", scopes: [...ALL_DSH_ADMIN_SCOPES] };
   }
 
   logout(cookie: string): void {

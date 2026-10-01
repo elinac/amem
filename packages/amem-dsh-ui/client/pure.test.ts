@@ -1,5 +1,21 @@
 import { describe, expect, it } from "vitest";
-import { effectivePage, isStale, nextQuery, rpcErrorMessage } from "./api.js";
+import {
+  authStateForMode,
+  effectivePage,
+  isStale,
+  nextQuery,
+  rpcErrorMessage,
+} from "./api.js";
+
+describe("authStateForMode", () => {
+  it("starts ready when panel auth is disabled", () => {
+    expect(authStateForMode(false).kind).toBe("ready");
+  });
+
+  it("starts locked when panel auth is enabled", () => {
+    expect(authStateForMode(true).kind).toBe("locked");
+  });
+});
 
 describe("nextQuery", () => {
   it("resets page after a filter change", () => {

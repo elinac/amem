@@ -71,12 +71,14 @@ afterEach(() => {
   for (const h of tempHomes.splice(0)) rmSync(h, { recursive: true, force: true });
 });
 
-function tempAmemHome(): string {
+function tempAmemHome(authEnabled = false): string {
   const home = mkdtempSync(join(tmpdir(), "amem-plugin-route-"));
   tempHomes.push(home);
   mkdirSync(home, { recursive: true });
   mkdirSync(paths(home).auth, { recursive: true });
-  writeFileSync(join(home, "amem.toml"), configToToml(defaultConfig()));
+  const cfg = defaultConfig();
+  cfg.dsh.admin.auth_enabled = authEnabled;
+  writeFileSync(join(home, "amem.toml"), configToToml(cfg));
   return home;
 }
 
@@ -137,7 +139,7 @@ describe("/amem-api independent auth routes", () => {
   });
 
   it("logs in with bearer and sets a safe cookie", async () => {
-    const home = tempAmemHome();
+    const home = tempAmemHome(true);
     const { token } = new DshTokenStore(home).issue(["memory:read"], 60 * 60 * 1000);
     const handler = mountHandler(home);
     const { res, status, json, headers } = mockRes();
@@ -163,8 +165,22 @@ describe("/amem-api independent auth routes", () => {
     expect(headers()["x-content-type-options"]).toBe("nosniff");
   });
 
+  it("allows local RPC without a session when auth is disabled by default", async () => {
+    const handler = mountHandler(tempAmemHome());
+    const { res, status, json } = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/rpc", {
+        body: JSON.stringify({ id: "1", method: "memory.list", params: {} }),
+        headers: { origin: "http://127.0.0.1", host: "127.0.0.1" },
+      }),
+      res,
+    );
+    expect(status()).toBe(200);
+    expect((json() as { ok: boolean }).ok).toBe(true);
+  });
+
   it("rejects RPC without a browser session", async () => {
-    const home = tempAmemHome();
+    const home = tempAmemHome(true);
     const handler = mountHandler(home);
     const { res, status, json } = mockRes();
     await handler(
@@ -185,7 +201,7 @@ describe("/amem-api independent auth routes", () => {
   });
 
   it("runs read RPC with session scope", async () => {
-    const home = tempAmemHome();
+    const home = tempAmemHome(true);
     const { token } = new DshTokenStore(home).issue(["memory:read"], 60 * 60 * 1000);
     const handler = mountHandler(home);
 
@@ -224,7 +240,7 @@ describe("/amem-api independent auth routes", () => {
   });
 
   it("rejects mutating RPC without csrf", async () => {
-    const home = tempAmemHome();
+    const home = tempAmemHome(true);
     const { token } = new DshTokenStore(home).issue(["config:write"], 60 * 60 * 1000);
     const handler = mountHandler(home);
 
@@ -262,7 +278,7 @@ describe("/amem-api independent auth routes", () => {
   });
 
   it("rejects cross-origin and oversized requests", async () => {
-    const home = tempAmemHome();
+    const home = tempAmemHome(true);
     const { token } = new DshTokenStore(home).issue(["memory:read"], 60 * 60 * 1000);
     const handler = mountHandler(home);
 

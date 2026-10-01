@@ -298,6 +298,26 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
             return;
           }
 
+          if (method === "GET" && path === "/auth/status") {
+            const result = sessions.authorizeLocal([], meta);
+            if (!result.ok) {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              { ok: true, authEnabled: cfg.auth_enabled, scopes: result.scopes },
+              { "cache-control": "no-store" },
+            );
+            return;
+          }
+
           if (method === "POST" && path === "/auth/csrf") {
             const cookie = parseCookie(req.headers.cookie);
             const result = sessions.issueCsrf(cookie, meta);
@@ -375,8 +395,9 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
             const cookie = parseCookie(req.headers.cookie);
             const csrfHeader = req.headers["x-amem-csrf"];
             const csrf = typeof csrfHeader === "string" ? csrfHeader : undefined;
-            const auth: RpcAuth = (required) =>
-              sessions.authenticate(cookie, csrf, [required], meta);
+            const auth: RpcAuth = cfg.auth_enabled
+              ? (required) => sessions.authenticate(cookie, csrf, [required], meta)
+              : (required) => sessions.authorizeLocal([required], meta);
             const rpcRes = await dispatchRpc(admin, envelope, auth);
             const status = rpcRes.ok ? 200 : rpcStatus(rpcRes.error.code);
             sendJson(res, status, rpcRes, { "cache-control": "no-store" });

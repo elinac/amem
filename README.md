@@ -518,13 +518,20 @@ dsh web --patch "%USERPROFILE%\.amem\hosts\dsh\amem.cordis.yml"
 **DSH Web 扩展（仅 `dsh web`）：**
 
 - Cordis 插件监听 `session/event` 写入 `~/.amem/spool`（fail-open）。
-- Host 注册同域 `/amem-api`，鉴权改为独立能力令牌 + HttpOnly 短会话 + CSRF，不再依赖 Connection `requestRejection`/`admit`。
+- Host 注册同域 `/amem-api`；管理面板默认关闭 auth，仍保留来源校验。设置 `[dsh.admin].auth_enabled = true` 后使用独立能力令牌 + HttpOnly 短会话 + CSRF，不依赖 Connection `requestRejection`/`admit`。
 - 左栏 **amem** 面板：记忆 / 能力 / 提案 / 运维 / 配置 / 说明（包 `@amem/amem-dsh-ui`）；**运维** Tab 对应 RPC：`ops.doctor`、`ops.flush`、`ops.rebuild`、`ops.consolidate`、`ops.compile`（面板内固定 target 为 dsh，不可改）；**配置** Tab 调用 `config.get` / `config.put`，永不展示真实 API Key 原值。
 - headless / ACP 无面板，仍可用 MCP。
 
-#### DSH 管理面板认证
+#### DSH 管理面板认证（可选）
 
-DSH Web 左栏 `amem` 面板需要长期能力令牌登录。令牌只显示一次，请立即复制并妥善保存。
+默认本机模式下，DSH Web 左栏 `amem` 面板无需登录即可使用。需要远程访问或显式启用保护时，在 `~/.amem/amem.toml` 中设置：
+
+```toml
+[dsh.admin]
+auth_enabled = true
+```
+
+启用后，面板需要长期能力令牌登录。令牌只显示一次，请立即复制并妥善保存。
 
 ```powershell
 amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read
@@ -549,7 +556,7 @@ amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read
 dsh web
 ```
 
-在解锁框粘贴令牌，浏览器用 bearer 换取 HttpOnly `amem_dsh_session` Cookie 与内存 CSRF token；后续 RPC 读写均携带该 Cookie，写操作额外带 CSRF 头。刷新页面不会丢失会话（Cookie 存活至令牌过期或主动退出）。
+启用 auth 后，在解锁框粘贴令牌，浏览器用 bearer 换取 HttpOnly `amem_dsh_session` Cookie 与内存 CSRF token；后续 RPC 读写均携带该 Cookie，写操作额外带 CSRF 头。刷新页面不会丢失会话（Cookie 存活至令牌过期或主动退出）。
 
 撤销令牌：
 
@@ -567,9 +574,10 @@ amem auth revoke <token-id>
 allowed_origins = ["http://127.0.0.1", "http://localhost"]
 session_ttl_minutes = 480
 auth_failure_limit = 8
+auth_enabled = false
 ```
 
-- 仅列表中的 origin 可以登录；origin 与请求 Host 必须完全一致。
+- 仅列表中的 origin 可以访问面板 API；启用 auth 时，origin 与请求 Host 必须完全一致。
 - 远程 origin 必须使用 HTTPS；非 HTTPS 远程 origin 会被配置校验拒绝。
 - bearer token 不会进入 URL、日志、`amem.toml`、`localStorage` 或构建产物。
 

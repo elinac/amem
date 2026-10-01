@@ -18,6 +18,13 @@ import {
 } from "./config.js";
 
 describe("DSH admin config TOML", () => {
+  it("defaults panel auth off and round-trips an explicit opt-in", () => {
+    const cfg = defaultConfig("u");
+    expect(cfg.dsh.admin.auth_enabled).toBe(false);
+    cfg.dsh.admin.auth_enabled = true;
+    expect(parseSimpleToml(configToToml(cfg)).dsh.admin.auth_enabled).toBe(true);
+  });
+
   it("round-trips DSH admin security settings", () => {
     const cfg = defaultConfig("u");
     cfg.dsh.admin.allowed_origins = ["http://127.0.0.1:3000"];

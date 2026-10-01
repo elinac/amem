@@ -16,6 +16,7 @@ import {
 } from "react";
 import {
   auth,
+  getAuthStatus,
   login,
   logout,
   refreshCsrf,
@@ -134,6 +135,16 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     },
     [],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    void getAuthStatus().then((state) => {
+      if (!cancelled) setAuthState(state);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   const loadMemories = useCallback(
     async (wanted: ListMemoryFilters & { page: number; pageSize: 20 | 50 | 100 }) => {
@@ -698,6 +709,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
           "main",
           { style: styles.content },
           authState.kind === "ready" &&
+          authState.authEnabled &&
             createElement(
               "div",
               { style: { display: "flex", justifyContent: "flex-end", padding: tokens.space2 } },
