@@ -430,7 +430,7 @@ export function createAdmin(home = defaultAmemHome()) {
         return {
           ok: false,
           error: "internal",
-          message: e instanceof Error ? e.message : String(e),
+          message: "internal error",
           status: 500,
         };
       }
