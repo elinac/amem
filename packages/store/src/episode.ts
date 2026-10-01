@@ -56,8 +56,11 @@ export class EpisodeStore {
     mkdirSync(dir, { recursive: true });
     const eventsPath = join(dir, `${episodeId}.jsonl`);
     const body = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
-    writeFileSync(eventsPath, body);
     const hash = createHash("sha256").update(body).digest("hex");
+    // Re-sealing unchanged spool is a no-op: retries must not litter duplicate episodes.
+    const existing = this.listMetas().find((m) => m.session_id === sessionId && m.hash === hash);
+    if (existing) return existing;
+    writeFileSync(eventsPath, body);
     const meta: EpisodeMeta = {
       episode_id: episodeId,
       session_id: sessionId,

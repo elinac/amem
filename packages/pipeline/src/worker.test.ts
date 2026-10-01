@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -56,5 +56,26 @@ describe("processQueue", () => {
     const sid = vi.mocked(extractSession).mock.calls[0]![1];
     expect(sid).toMatch(/^sid_[a-f0-9]{12}$/);
     expect(sid).not.toContain("..");
+  });
+  it("logs and dead-letters a failing extraction instead of dropping it silently", async () => {
+    const home = setupHome();
+    const dir = join(home, "queue");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "flush-s1-7.json"),
+      JSON.stringify({ type: "flush", sessionId: "s1" }),
+    );
+    vi.mocked(extractSession).mockRejectedValueOnce(new Error("llm http 400"));
+
+    // A failed job must not be counted as processed and must not throw.
+    await expect(processQueue(home)).resolves.toBe(0);
+    expect(existsSync(join(dir, "failed", "flush-s1-7.json"))).toBe(true);
+    const log = readFileSync(join(home, "logs", "amem.log"), "utf8");
+    expect(log).toContain("extract failed job=flush-s1-7.json");
+    expect(log).toContain("llm http 400");
+
+    // Dead-lettered jobs are not retried on the next pass.
+    await expect(processQueue(home)).resolves.toBe(0);
+    expect(extractSession).toHaveBeenCalledTimes(1);
   });
 });

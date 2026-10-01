@@ -72,30 +72,28 @@ export const CanonicalEventSchema = z.object({
     .optional(),
 });
 
-export const ExtractCandidatesSchema = z.object({
-  candidates: z
+export const ExtractCandidateSchema = z.object({
+  kind: MemoryKindSchema,
+  title: z.string().max(80),
+  content: z.string().max(1200),
+  applies_when: z.string().min(1),
+  not_applies_when: z.string().optional(),
+  domains: z.array(z.string()).optional(),
+  tools: z.array(z.string()).optional(),
+  task_type: z.string().optional(),
+  evidence: z
     .array(
       z.object({
-        kind: MemoryKindSchema,
-        title: z.string().max(80),
-        content: z.string().max(1200),
-        applies_when: z.string().min(1),
-        not_applies_when: z.string().optional(),
-        domains: z.array(z.string()).optional(),
-        tools: z.array(z.string()).optional(),
-        task_type: z.string().optional(),
-        evidence: z
-          .array(
-            z.object({
-              event: z.number().int().nonnegative(),
-              quote: z.string().min(1),
-            }),
-          )
-          .min(1),
-        confidence: z.number().optional(),
+        event: z.number().int().nonnegative(),
+        quote: z.string().min(1),
       }),
     )
-    .max(8),
+    .min(1),
+  confidence: z.number().optional(),
+});
+
+export const ExtractCandidatesSchema = z.object({
+  candidates: z.array(ExtractCandidateSchema).max(8),
 });
 
 export const MemoryFrontmatterSchema = z.object({

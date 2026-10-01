@@ -1,4 +1,5 @@
 import {
+  appendFileSync,
   existsSync,
   mkdirSync,
   readdirSync,
@@ -24,6 +25,19 @@ function isPendingJob(name: string): boolean {
   return name.endsWith(".json") && !name.startsWith(".");
 }
 
+/** Extraction failures used to be swallowed; they are now logged and dead-lettered. */
+function logFailure(home: string, job: string, detail: string): void {
+  try {
+    const dir = paths(home).logs;
+    mkdirSync(dir, { recursive: true });
+    const line = `${new Date().toISOString()} extract failed job=${job}\n${detail}\n`;
+    appendFileSync(join(dir, "amem.log"), line);
+    process.stderr.write(`[amem] extract failed job=${job}: ${detail.split("\n")[0]}\n`);
+  } catch {
+    /* fail-open: logging must never break the worker */
+  }
+}
+
 export async function processQueue(home: string): Promise<number> {
   const dir = paths(home).queue;
   if (!existsSync(dir)) return 0;
@@ -45,10 +59,18 @@ export async function processQueue(home: string): Promise<number> {
         await extractSession(home, sanitizeId(job.sessionId), cfg);
         n += 1;
       }
-    } catch {
-      // leave job for retry? for now drop
+      rmSync(claimed, { force: true });
+    } catch (e) {
+      const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
+      logFailure(home, f, detail);
+      try {
+        const failedDir = join(dir, "failed");
+        mkdirSync(failedDir, { recursive: true });
+        renameSync(claimed, join(failedDir, f));
+      } catch {
+        rmSync(claimed, { force: true });
+      }
     }
-    rmSync(claimed, { force: true });
   }
   return n;
 }

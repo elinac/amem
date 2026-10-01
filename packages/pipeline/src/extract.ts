@@ -1,5 +1,6 @@
 import {
   type AmemConfig,
+  type EpisodeMeta,
   type MemoryCandidate,
   type MemoryRecord,
   evidenceQuotesValid,
@@ -7,6 +8,7 @@ import {
 } from "@amem/core";
 import { EpisodeStore, IndexStore, MemoryStore } from "@amem/store";
 import { createLlmClient } from "@amem/llm";
+import { externalEventLines, verifiedCandidateEvidence } from "./verify.js";
 
 export type ReconcileAction = "ADD" | "UPDATE" | "NOOP" | "CONFLICT";
 
@@ -34,7 +36,8 @@ export function reconcile(
     }
     return { action: "UPDATE", target: m };
   }
-  if (existing.some((m) => norm(m.title) === cTitle)) return { action: "NOOP" };
+  const sameTitle = existing.find((m) => norm(m.title) === cTitle);
+  if (sameTitle) return { action: "NOOP", target: sameTitle };
   return { action: "ADD" };
 }
 
@@ -44,6 +47,47 @@ export function generalize(c: MemoryCandidate): MemoryCandidate {
     .replace(/\/[a-zA-Z]:\/[^\s]+/g, "<path>")
     .replace(/\b[0-9a-f]{8}-[0-9a-f-]{27,}\b/gi, "<id>");
   return { ...c, content };
+}
+
+/** Merge newly validated evidence into an existing record (spec §7.4). */
+function addEvidence(
+  target: MemoryRecord,
+  meta: EpisodeMeta,
+  quotes: { event: number; quote: string }[],
+): void {
+  target.evidence.episodes = [...new Set([...target.evidence.episodes, meta.episode_id])];
+  const seen = new Set(
+    (target.evidence.quotes ?? []).map((q) => `${q.ep}|${q.event ?? ""}|${q.text}`),
+  );
+  const merged = target.evidence.quotes ?? [];
+  for (const q of quotes) {
+    const key = `${meta.episode_id}|${q.event}|${q.quote}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    merged.push({ ep: meta.episode_id, event: q.event, text: q.quote });
+  }
+  target.evidence.quotes = merged;
+  target.evidence.count += 1;
+  const instances = new Set(target.scope.tags.instances ?? []);
+  if (meta.instance_id) instances.add(meta.instance_id);
+  if (instances.size) target.scope.tags.instances = [...instances];
+  target.evidence.distinct_instances = Math.max(
+    1,
+    target.scope.tags.instances?.length ?? target.evidence.distinct_instances,
+  );
+  target.updated_at = new Date().toISOString();
+}
+
+/**
+ * A candidate that just gained real Episode evidence has passed the Pipeline evidence
+ * validation the design requires of agent notes, so it becomes recallable. Status only:
+ * trust and level are untouched (I2).
+ */
+function promoteIfValidated(target: MemoryRecord, meta: EpisodeMeta): boolean {
+  if (target.status !== "candidate") return false;
+  if (!target.evidence.episodes.includes(meta.episode_id)) return false;
+  target.status = "active";
+  return true;
 }
 
 export async function extractSession(
@@ -71,16 +115,12 @@ export async function extractSession(
       continue;
     }
     const decision = reconcile(c, existing);
-    if (decision.action === "NOOP") {
-      skipped += 1;
-      continue;
-    }
-    if (decision.action === "UPDATE" && decision.target) {
-      decision.target.evidence.episodes = [
-        ...new Set([...decision.target.evidence.episodes, meta.episode_id]),
-      ];
-      decision.target.evidence.count += 1;
-      decision.target.updated_at = new Date().toISOString();
+    if (
+      decision.target &&
+      (decision.action === "UPDATE" || decision.action === "NOOP")
+    ) {
+      addEvidence(decision.target, meta, c.evidence);
+      promoteIfValidated(decision.target, meta);
       memories.write(decision.target, "pipeline");
       written.push(decision.target.id);
       continue;
@@ -134,6 +174,19 @@ export async function extractSession(
     memories.write(rec, "pipeline");
     existing.push(rec);
     written.push(id);
+  }
+
+  // Agent notes (memory_note) are stored as `candidate` because they carry no Episode
+  // evidence, and recall only injects active/conflict memories. Promote the ones whose
+  // evidence is grounded in this sealed Episode - counting only external signals.
+  const external = externalEventLines(events);
+  for (const m of memories.listAll()) {
+    const evidence = verifiedCandidateEvidence(m, meta, external);
+    if (!evidence) continue;
+    addEvidence(m, meta, [evidence]);
+    promoteIfValidated(m, meta);
+    memories.write(m, "pipeline");
+    written.push(m.id);
   }
 
   const idx = new IndexStore(home);

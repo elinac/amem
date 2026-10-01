@@ -45,6 +45,23 @@ describe("EpisodeStore", () => {
     expect(store.readEvents(meta)).toHaveLength(2);
     expect(store.episodeBlob(meta)).toContain("Port 3000");
   });
+
+  it("re-sealing unchanged spool reuses the episode instead of duplicating it", () => {
+    const home = tmpHome();
+    const store = new EpisodeStore(home);
+    const sid = "sess-dup";
+    store.appendSpool(sid, ev({ type: "session_start", session_id: sid }));
+
+    const first = store.seal(sid);
+    const second = store.seal(sid);
+    expect(second.episode_id).toBe(first.episode_id);
+    expect(second.hash).toBe(first.hash);
+    expect(store.listMetas().filter((m) => m.session_id === sid)).toHaveLength(1);
+
+    // New events still produce a fresh episode.
+    store.appendSpool(sid, ev({ type: "user_prompt", session_id: sid, payload: { text: "more" } }));
+    expect(store.seal(sid).episode_id).not.toBe(first.episode_id);
+  });
 });
 
 describe("MemoryStore + Index", () => {
