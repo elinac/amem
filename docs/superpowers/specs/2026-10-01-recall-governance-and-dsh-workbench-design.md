@@ -147,6 +147,8 @@ DSH 的公开 `webServer.register()` 只提供 HTTP carrier；`Connection` 对�
 
 ### 6.1 威胁模型
 
+DSH 管理面板的 `auth_enabled` 默认值为 `false`，适配本机单用户场景；关闭 auth 不会关闭 loopback/origin 校验、请求限制或固定 RPC 注册表。需要远程访问或更强隔离时，可在 `[dsh.admin]` 中显式设置 `auth_enabled = true`，启用以下长期能力令牌和浏览器会话保护。
+
 独立认证必须防止：
 
 - 未持有 amem 管理能力的网页或网络客户端读取、搜索或修改记忆；
@@ -178,7 +180,7 @@ P0 scope：
 
 ### 6.3 浏览器会话
 
-面板首次进入显示解锁页。用户粘贴长期 token 后，客户端用 `Authorization: Bearer <token>` 调用 `POST /amem-api/auth/session`。服务端校验精确 Origin/Host、token 哈希、scope、过期与撤销状态，然后：
+当 `auth_enabled = true` 时，面板首次进入显示解锁页。用户粘贴长期 token 后，客户端用 `Authorization: Bearer <token>` 调用 `POST /amem-api/auth/session`。服务端校验精确 Origin/Host、token 哈希、scope、过期与撤销状态，然后：
 
 1. 创建随机、进程内保存的短会话，最长 8 小时且不超过长期 token 的剩余 TTL；
 2. 设置 `HttpOnly; SameSite=Strict; Path=/amem-api` cookie；HTTPS 时必须 `Secure`；
@@ -187,7 +189,7 @@ P0 scope：
 
 页面刷新后允许凭 HttpOnly 会话通过 `POST /amem-api/auth/csrf` 领取新的短 CSRF token。`DELETE /amem-api/auth/session` 使当前会话失效。服务重启使全部短会话失效，用户重新解锁。
 
-所有 RPC 都要求有效会话 cookie；变更方法额外要求 `X-CSRF-Token`、精确 Origin 与 `Sec-Fetch-Site: same-origin|none`。不发送任何 `Access-Control-Allow-Origin`。允许的 DSH origin 必须在配置中精确列出；默认只接受当前 loopback origin，远程使用必须显式配置 HTTPS origin。
+启用 auth 时，所有 RPC 都要求有效会话 cookie；变更方法额外要求 `X-CSRF-Token`、精确 Origin 与 `Sec-Fetch-Site: same-origin|none`。关闭 auth 时，RPC 使用本机管理身份，但仍要求精确 Origin/Host，变更方法仍要求 `Sec-Fetch-Site: same-origin|none`。不发送任何 `Access-Control-Allow-Origin`。允许的 DSH origin 必须在配置中精确列出；默认只接受当前 loopback origin，远程使用必须显式配置 HTTPS origin。
 
 ### 6.4 RPC 契约
 

@@ -2,7 +2,11 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { loadConfig, paths } from "@amem/core";
 import { createAdmin } from "./admin.js";
+import { DshTokenStore } from "./auth-store.js";
+import { BrowserSessionManager } from "./browser-session.js";
+import { dispatchRpc, type RpcAuth } from "./rpc.js";
 import {
   normalizeDshLifecycle,
   normalizeDshSessionEvent,
@@ -11,7 +15,7 @@ import {
 import { appendCanonical, enqueueFlush, wakeWorker } from "./spool.js";
 
 /** Cordis Loader reads this from the host wrapper (re-exported). */
-export const inject = ["webServer", "connection"];
+export const inject = ["webServer"];
 
 /** Minimal duck-typed Cordis context — no @deepseek-ai compile dependency. */
 export type DshPluginContext = {
@@ -19,11 +23,10 @@ export type DshPluginContext = {
   /** Cordis optional service probe (works after inject has provided the service). */
   get?: (name: string) => unknown;
   /** Nested fiber that waits for named services (DSH Cordis). */
-  inject?: (deps: string[], callback: (ctx: DshPluginContext) => void) => unknown;
+  inject?: (deps: string[], callback: (ctx: DshPluginContext) => void) => void;
   /** Track disposers for unload (e.g. webServer.register return value). */
   effect?: (fn: () => unknown, label?: string) => unknown;
   webServer?: WebServer;
-  connection?: Connection;
 };
 
 function hostLog(home: string, msg: string): void {
@@ -64,22 +67,106 @@ function safe(fn: () => void): void {
   }
 }
 
+class BodyTooLargeError extends Error {
+  constructor() {
+    super("request body too large");
+    this.name = "BodyTooLargeError";
+  }
+}
+
+const MAX_BODY_BYTES = 64 * 1024;
+
 function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
+    let total = 0;
     const chunks: Buffer[] = [];
-    req.on("data", (c) => chunks.push(Buffer.isBuffer(c) ? c : Buffer.from(c)));
-    req.on("end", () => resolve(Buffer.concat(chunks).toString("utf8")));
-    req.on("error", reject);
+    function onData(c: Buffer | string): void {
+      const buf = Buffer.isBuffer(c) ? c : Buffer.from(c, "utf8");
+      total += buf.length;
+      if (total > MAX_BODY_BYTES) {
+        req.off("data", onData);
+        req.off("end", onEnd);
+        req.off("error", onError);
+        reject(new BodyTooLargeError());
+        return;
+      }
+      chunks.push(buf);
+    }
+    function onEnd(): void {
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    }
+    function onError(err: Error): void {
+      reject(err);
+    }
+    req.on("data", onData);
+    req.on("end", onEnd);
+    req.on("error", onError);
   });
 }
 
-function sendJson(res: ServerResponse, status: number, body: unknown): void {
+type SendHeaders = Record<string, string | string[]>;
+
+function sendJson(
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  extraHeaders?: SendHeaders,
+): void {
   const payload = JSON.stringify(body);
-  res.writeHead(status, {
+  const headers: Record<string, string | number | string[]> = {
     "content-type": "application/json; charset=utf-8",
     "content-length": Buffer.byteLength(payload),
-  });
+    "x-content-type-options": "nosniff",
+    ...extraHeaders,
+  };
+  res.writeHead(status, headers);
   res.end(payload);
+}
+
+function requestMeta(req: IncomingMessage): {
+  origin: string;
+  host: string;
+  secFetchSite: string | undefined;
+} {
+  const origin = req.headers.origin;
+  const host = req.headers.host;
+  const secFetchSite = req.headers["sec-fetch-site"];
+  return {
+    origin: typeof origin === "string" ? origin : "",
+    host: typeof host === "string" ? host : "",
+    secFetchSite: typeof secFetchSite === "string" ? secFetchSite : undefined,
+  };
+}
+
+function parseCookie(cookieHeader: string | undefined): string {
+  if (!cookieHeader) return "";
+  for (const part of cookieHeader.split(";")) {
+    const idx = part.indexOf("=");
+    if (idx < 0) continue;
+    const name = part.slice(0, idx).trim();
+    if (name === "amem_dsh_session") {
+      return part.slice(idx + 1).trim();
+    }
+  }
+  return "";
+}
+
+function rpcStatus(code: string): number {
+  switch (code) {
+    case "not_found":
+      return 404;
+    case "invalid_argument":
+      return 400;
+    case "unauthenticated":
+      return 401;
+    case "permission_denied":
+      return 403;
+    case "conflict":
+      return 409;
+    case "internal":
+    default:
+      return 500;
+  }
 }
 
 /**
@@ -94,7 +181,12 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
   const userId =
     config?.userId ?? process.env.USERNAME ?? process.env.USER ?? "local";
   const cliPath = config?.cliPath;
+
+  mkdirSync(paths(home).auth, { recursive: true });
+  const cfg = loadConfig(home).dsh.admin;
   const admin = createAdmin(home);
+  const tokenStore = new DshTokenStore(home);
+  const sessions = new BrowserSessionManager(home, cfg, tokenStore);
   const ended = new Set<string>();
 
   if (typeof ctx.on === "function") {
@@ -136,207 +228,191 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
 
   hostLog(
     home,
-    `apply keys=${Object.keys(ctx as object).join(",")} hasInject=${typeof ctx.inject} hasGet=${typeof ctx.get} hasWS=${!!ctx.webServer} hasConn=${!!ctx.connection}`,
+    `apply keys=${Object.keys(ctx as object).join(",")} hasInject=${typeof ctx.inject} hasGet=${typeof ctx.get} hasWS=${!!ctx.webServer}`,
   );
 
-  // Management API needs webServer + connection. Cordis only exposes them after
-  // inject waits — probing ctx.get at apply time silently skips registration
-  // (UI then sees SPA fallback "Not Found" while CLI list still works).
-  // Prefer module/wrapper `export const inject` so apply runs only when ready.
   const mountApi = (apiCtx: DshPluginContext): void => {
     const webServer =
       apiCtx.webServer ??
-      (typeof apiCtx.get === "function" ? (apiCtx.get("webServer") as WebServer | undefined) : undefined);
-    const connection =
-      apiCtx.connection ??
-      (typeof apiCtx.get === "function" ? (apiCtx.get("connection") as Connection | undefined) : undefined);
-    hostLog(
-      home,
-      `mountApi ws=${!!webServer?.register} conn=${!!connection} reject=${typeof connection?.requestRejection} admit=${typeof connection?.admit}`,
-    );
+      (typeof apiCtx.get === "function"
+        ? (apiCtx.get("webServer") as WebServer | undefined)
+        : undefined);
+    hostLog(home, `mountApi ws=${!!webServer?.register}`);
     if (!webServer?.register) {
       hostLog(home, "mountApi abort: no webServer.register");
       return;
     }
 
-    const checkAuth = (req: IncomingMessage): { status: number; message: string } | null => {
-      if (typeof connection?.requestRejection === "function") {
-        const rej = connection.requestRejection(req);
-        if (rej === undefined) return null;
-        return { status: rej, message: rej === 403 ? "forbidden" : "unauthorized" };
-      }
-      if (typeof connection?.admit === "function") {
-        const admission = connection.admit(req);
-        if (admission && typeof admission === "object" && "rejection" in admission) {
-          const rej = (admission as { rejection: number | { status?: number; message?: string } })
-            .rejection;
-          if (typeof rej === "number") {
-            return { status: rej, message: rej === 403 ? "forbidden" : "unauthorized" };
-          }
-          return {
-            status: rej.status ?? 401,
-            message: rej.message ?? "admit rejected",
-          };
-        }
-        return null;
-      }
-      return { status: 401, message: "connection auth unavailable" };
-    };
     const route = {
       kind: "prefix" as const,
       path: "/amem-api",
       handler: async (req: IncomingMessage, res: ServerResponse) => {
+        const meta = requestMeta(req);
+        const url = new URL(req.url ?? "/", "http://127.0.0.1");
+        const path = url.pathname.replace(/^\/amem-api/, "") || "/";
+        const method = (req.method ?? "GET").toUpperCase();
+
         try {
-          const denied = checkAuth(req);
-          if (denied) {
-            sendJson(res, denied.status, { error: "unauthorized", message: denied.message });
-            return;
-          }
-
-          const url = new URL(req.url ?? "/", "http://127.0.0.1");
-          const path = url.pathname.replace(/^\/amem-api/, "") || "/";
-          const method = (req.method ?? "GET").toUpperCase();
-
-          if (method === "GET" && path === "/memories") {
-            const limit = Number(url.searchParams.get("limit") ?? 50);
-            const r = admin.listMemories(Number.isFinite(limit) ? limit : 50);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          const memMatch = path.match(/^\/memories\/([^/]+)$/);
-          if (method === "GET" && memMatch) {
-            const r = admin.getMemory(decodeURIComponent(memMatch[1]!));
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-          if (method === "DELETE" && memMatch) {
-            const r = admin.forget(decodeURIComponent(memMatch[1]!));
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "POST" && path === "/recall") {
-            const body = JSON.parse((await readBody(req)) || "{}") as {
-              query?: string;
-              k?: number;
-            };
-            if (!body.query) {
-              sendJson(res, 400, { error: "bad_request", message: "query required" });
-              return;
-            }
-            const r = admin.recall(body.query, body.k);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "POST" && path === "/notes") {
-            const body = JSON.parse((await readBody(req)) || "{}") as {
-              kind?: MemoryRecordKind;
-              title?: string;
-              content?: string;
-              applies_when?: string;
-              evidence_hint?: string;
-            };
-            if (!body.kind || !body.title || !body.content || !body.applies_when) {
-              sendJson(res, 400, {
-                error: "bad_request",
-                message: "kind, title, content, applies_when required",
-              });
-              return;
-            }
-            const r = admin.note({
-              kind: body.kind,
-              title: body.title,
-              content: body.content,
-              applies_when: body.applies_when,
-              evidence_hint: body.evidence_hint,
-            });
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "GET" && path === "/skills") {
-            const r = admin.listSkills();
-            sendJson(res, 200, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "GET" && path === "/proposals") {
-            const r = admin.listProposals();
-            sendJson(res, 200, r.ok ? r.data : r);
-            return;
-          }
-
-          const applyMatch = path.match(/^\/proposals\/([^/]+)\/apply$/);
-          if (method === "POST" && applyMatch) {
-            const body = JSON.parse((await readBody(req)) || "{}") as { skillName?: string };
-            if (!body.skillName) {
-              sendJson(res, 400, { error: "bad_request", message: "skillName required" });
-              return;
-            }
-            const r = admin.applyProposal(decodeURIComponent(applyMatch[1]!), body.skillName);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "GET" && path === "/doctor") {
-            const r = admin.doctor();
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "POST" && path === "/flush") {
-            const body = JSON.parse((await readBody(req)) || "{}") as { sessionId?: string };
-            const r = await admin.flush(body.sessionId);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "POST" && path === "/rebuild-index") {
-            const r = admin.rebuildIndex();
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "POST" && path === "/consolidate") {
-            const body = JSON.parse((await readBody(req)) || "{}") as { dryRun?: boolean };
-            const r = admin.consolidate(body.dryRun === true);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "POST" && path === "/compile") {
-            const body = JSON.parse((await readBody(req)) || "{}") as { target?: string };
-            const r = admin.compile(body.target);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "GET" && path === "/config") {
-            const r = admin.getConfig();
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-            return;
-          }
-
-          if (method === "PUT" && path === "/config") {
+          if (method === "POST" && path === "/auth/session") {
             let body: unknown;
             try {
-              body = JSON.parse((await readBody(req)) || "{}");
-            } catch {
-              sendJson(res, 400, { error: "bad_request", message: "invalid JSON" });
+              body = JSON.parse(await readBody(req));
+            } catch (e) {
+              if (e instanceof BodyTooLargeError) throw e;
+              sendJson(res, 400, { error: "invalid_argument", message: "invalid JSON" });
               return;
             }
-            const r = admin.putConfig(body);
-            sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
+            const token =
+              body != null && typeof body === "object" && "bearer" in body
+                ? String((body as Record<string, unknown>).bearer)
+                : "";
+            const result = sessions.login({
+              bearer: token,
+              origin: meta.origin,
+              host: meta.host,
+              secFetchSite: meta.secFetchSite,
+            });
+            if (!result.ok) {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              {
+                ok: true,
+                csrfToken: result.csrfToken,
+                scopes: result.scopes,
+                expiresAt: result.expiresAt,
+              },
+              {
+                "set-cookie": result.cookie,
+                "cache-control": "no-store",
+              },
+            );
+            return;
+          }
+
+          if (method === "GET" && path === "/auth/status") {
+            const result = sessions.authorizeLocal([], meta);
+            if (!result.ok) {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              { ok: true, authEnabled: cfg.auth_enabled, scopes: result.scopes },
+              { "cache-control": "no-store" },
+            );
+            return;
+          }
+
+          if (method === "POST" && path === "/auth/csrf") {
+            const cookie = parseCookie(req.headers.cookie);
+            const result = sessions.issueCsrf(cookie, meta);
+            if (!result.ok) {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            sendJson(
+              res,
+              200,
+              { ok: true, csrfToken: result.csrfToken, expiresAt: result.expiresAt },
+              { "cache-control": "no-store" },
+            );
+            return;
+          }
+
+          if (method === "DELETE" && path === "/auth/session") {
+            if (!cfg.allowed_origins.includes(meta.origin)) {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            try {
+              if (new URL(meta.origin).host !== meta.host) {
+                sendJson(
+                  res,
+                  401,
+                  { error: "unauthenticated", message: "unauthenticated" },
+                  { "cache-control": "no-store" },
+                );
+                return;
+              }
+            } catch {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            const cookie = parseCookie(req.headers.cookie);
+            sessions.logout(cookie);
+            sendJson(
+              res,
+              200,
+              { ok: true },
+              {
+                "cache-control": "no-store",
+                "set-cookie":
+                  "amem_dsh_session=; HttpOnly; SameSite=Strict; Path=/amem-api; Max-Age=0",
+              },
+            );
+            return;
+          }
+
+          if (method === "POST" && path === "/rpc") {
+            let envelope: unknown;
+            try {
+              envelope = JSON.parse(await readBody(req));
+            } catch (e) {
+              if (e instanceof BodyTooLargeError) throw e;
+              sendJson(res, 400, { error: "invalid_argument", message: "invalid JSON" });
+              return;
+            }
+            const cookie = parseCookie(req.headers.cookie);
+            const csrfHeader = req.headers["x-amem-csrf"];
+            const csrf = typeof csrfHeader === "string" ? csrfHeader : undefined;
+            const auth: RpcAuth = cfg.auth_enabled
+              ? (required) => sessions.authenticate(cookie, csrf, [required], meta)
+              : (required) => sessions.authorizeLocal([required], meta);
+            const rpcRes = await dispatchRpc(admin, envelope, auth);
+            const status = rpcRes.ok ? 200 : rpcStatus(rpcRes.error.code);
+            sendJson(res, status, rpcRes, { "cache-control": "no-store" });
             return;
           }
 
           sendJson(res, 404, { error: "not_found", message: path });
         } catch (e) {
+          if (e instanceof BodyTooLargeError) {
+            sendJson(res, 400, { error: "invalid_argument", message: e.message });
+            return;
+          }
           sendJson(res, 500, {
             error: "internal",
-            message: e instanceof Error ? e.message : String(e),
+            message: "internal error",
           });
         }
       },
@@ -355,12 +431,11 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
     }
   };
 
-  // If the Loader already honored export const inject, services are on ctx now.
   if (ctx.webServer?.register || (typeof ctx.get === "function" && ctx.get("webServer"))) {
     mountApi(ctx);
   } else if (typeof ctx.inject === "function") {
     hostLog(home, "defer mountApi via ctx.inject");
-    ctx.inject(["webServer", "connection"], mountApi);
+    ctx.inject(["webServer"], mountApi);
   } else {
     hostLog(home, "mountApi immediate fallback (no inject)");
     mountApi(ctx);
@@ -374,26 +449,5 @@ type WebServer = {
     handler: (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
   }) => () => void;
 };
-
-type Connection = {
-  /** Current DSH Connection API — prefer this over legacy admit. */
-  requestRejection?: (req: IncomingMessage) => 401 | 403 | undefined;
-  /** Older harness builds exposed admit(); keep as fallback. */
-  admit?: (req: IncomingMessage) =>
-    | { rejection: number | { status?: number; message?: string } }
-    | Record<string, unknown>;
-};
-
-type MemoryRecordKind =
-  | "fact"
-  | "case"
-  | "failure"
-  | "procedure"
-  | "tool_quirk"
-  | "strategy"
-  | "criterion"
-  | "constraint_hint"
-  | "preference"
-  | "open_question";
 
 export const name = "amem-dsh-host";

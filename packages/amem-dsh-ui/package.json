@@ -18,8 +18,8 @@
     }
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json && node scripts/build-client.mjs",
-    "test": "tsc -p tsconfig.json --noEmit"
+    "build": "tsc -p tsconfig.json && tsc -p tsconfig.client.json --noEmit && node scripts/build-client.mjs",
+    "test": "vitest run && tsc -p tsconfig.json --noEmit && tsc -p tsconfig.client.json --noEmit"
   },
   "peerDependencies": {
     "react": ">=18"
@@ -30,6 +30,7 @@
   "devDependencies": {
     "typescript": "^5.8.2",
     "@types/react": "^19.0.10",
-    "esbuild": "^0.25.0"
+    "esbuild": "^0.25.0",
+    "vitest": "^3.0.9"
   }
 }

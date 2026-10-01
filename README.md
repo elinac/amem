@@ -517,10 +517,71 @@ dsh web --patch "%USERPROFILE%\.amem\hosts\dsh\amem.cordis.yml"
 
 **DSH Web 扩展（仅 `dsh web`）：**
 
-- Cordis 插件监听 `session/event` 写入 `~/.amem/spool`（fail-open）  
-- Host 注册同域 `/amem-api`（需 `export const inject = ['webServer','connection']`，鉴权用 Connection `requestRejection`）  
-- 左栏 **amem** 面板：记忆 / 能力 / 提案 / 运维 / 配置 / 说明（包 `@amem/amem-dsh-ui`）；**运维** Tab 对应 Admin API：`doctor`、`flush`、`rebuild-index`、`consolidate`、`compile --target dsh`（面板内 compile 固定为 dsh，不可改 target）；**配置** Tab 可编辑常用 `amem.toml`（不含真实 API Key；privacy/embedding 保留磁盘值）  
-- headless / ACP 无面板，仍可用 MCP  
+- Cordis 插件监听 `session/event` 写入 `~/.amem/spool`（fail-open）。
+- Host 注册同域 `/amem-api`；管理面板默认关闭 auth，仍保留来源校验。设置 `[dsh.admin].auth_enabled = true` 后使用独立能力令牌 + HttpOnly 短会话 + CSRF，不依赖 Connection `requestRejection`/`admit`。
+- 左栏 **amem** 面板：记忆 / 能力 / 提案 / 运维 / 配置 / 说明（包 `@amem/amem-dsh-ui`）；**运维** Tab 对应 RPC：`ops.doctor`、`ops.flush`、`ops.rebuild`、`ops.consolidate`、`ops.compile`（面板内固定 target 为 dsh，不可改）；**配置** Tab 调用 `config.get` / `config.put`，永不展示真实 API Key 原值。
+- headless / ACP 无面板，仍可用 MCP。
+
+#### DSH 管理面板认证（可选）
+
+默认本机模式下，DSH Web 左栏 `amem` 面板无需登录即可使用。需要远程访问或显式启用保护时，在 `~/.amem/amem.toml` 中设置：
+
+```toml
+[dsh.admin]
+auth_enabled = true
+```
+
+启用后，面板需要长期能力令牌登录。令牌只显示一次，请立即复制并妥善保存。
+
+```powershell
+amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read
+```
+
+常用 scope：
+
+| Scope | 说明 |
+|-------|------|
+| `memory:read` | 查看、搜索记忆 |
+| `memory:forget` | 删除记忆 |
+| `skill:read` | 查看能力 |
+| `proposal:read` | 查看晋升提案 |
+| `proposal:apply` | 将提案物化为能力 |
+| `ops:doctor/flush/rebuild/consolidate/compile` | 运维操作 |
+| `config:read` | 读取配置（不含 API Key） |
+| `config:write` | 修改配置 |
+
+启动面板：
+
+```powershell
+dsh web
+```
+
+启用 auth 后，在解锁框粘贴令牌，浏览器用 bearer 换取 HttpOnly `amem_dsh_session` Cookie 与内存 CSRF token；后续 RPC 读写均携带该 Cookie，写操作额外带 CSRF 头。刷新页面不会丢失会话（Cookie 存活至令牌过期或主动退出）。
+
+撤销令牌：
+
+```powershell
+amem auth list
+amem auth revoke <token-id>
+```
+
+撤销后，依赖该令牌的所有短会话立即失效。
+
+本地/远程 origin 通过 `~/.amem/amem.toml` 的 `[dsh.admin]` 控制：
+
+```toml
+[dsh.admin]
+allowed_origins = ["http://127.0.0.1", "http://localhost"]
+session_ttl_minutes = 480
+auth_failure_limit = 8
+auth_enabled = false
+```
+
+- 仅列表中的 origin 可以访问面板 API；启用 auth 时，origin 与请求 Host 必须完全一致。
+- 远程 origin 必须使用 HTTPS；非 HTTPS 远程 origin 会被配置校验拒绝。
+- bearer token 不会进入 URL、日志、`amem.toml`、`localStorage` 或构建产物。
+
+> **安全边界说明**：本机制防护跨站请求与令牌持久化泄露。DSH 面板与插件运行在同一 origin，**同源恶意插件不在隔离边界内**——它可通过浏览器直接调用 `/amem-api/rpc`；请仅安装可信 DSH 插件。
 
 实现对照本地 DSH 源码 API；官网文档可能滞后于当前仓库。
 

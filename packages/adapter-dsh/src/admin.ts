@@ -7,9 +7,14 @@ import {
   mergeConfigOverlay,
   newId,
   paths,
+  resolveLlmApiKey,
   validateEditableConfigPatch,
   writeAmemConfigFile,
+  type MemoryKind,
   type MemoryRecord,
+  type MemoryStatus,
+  type ScopeLevel,
+  type Trust,
 } from "@amem/core";
 import { IndexStore, MemoryStore } from "@amem/store";
 import { buildContextPack, extractSituation, recall } from "@amem/retrieval";
@@ -20,38 +25,193 @@ import {
   materializeProposal,
 } from "@amem/compiler";
 import { consolidate, enqueueFlush, processQueue } from "@amem/pipeline";
+import type { DshAdminScope } from "./auth-store.js";
 
 export type AdminResult =
   | { ok: true; data: unknown }
   | { ok: false; error: string; message: string; status: number };
 
+export type ListMemoriesInput = {
+  page: number;
+  pageSize: 20 | 50 | 100;
+  q?: string;
+  kind?: MemoryKind;
+  level?: ScopeLevel;
+  trust?: Trust;
+  status?: MemoryStatus;
+};
+
+type MemoryListItem = {
+  id: string;
+  kind: MemoryKind;
+  level: ScopeLevel;
+  trust: Trust;
+  status: MemoryStatus;
+  title: string;
+  applies_when: string;
+  content: string;
+  helpful: number;
+  harmful: number;
+  updated_at: string;
+};
+
+const MEMORY_KINDS: MemoryKind[] = [
+  "fact",
+  "case",
+  "failure",
+  "procedure",
+  "tool_quirk",
+  "strategy",
+  "criterion",
+  "constraint_hint",
+  "preference",
+  "open_question",
+];
+const SCOPE_LEVELS: ScopeLevel[] = ["instance", "domain", "global"];
+const TRUSTS: Trust[] = ["T3", "T2", "T1"];
+const MEMORY_STATUSES: MemoryStatus[] = [
+  "candidate",
+  "active",
+  "superseded",
+  "conflict",
+  "frozen",
+  "expired",
+];
+const ALLOWED_PAGE_SIZES: readonly number[] = [20, 50, 100];
+const MAX_PREVIEW_CHARS = 200;
+
+function isMemoryKind(v: unknown): v is MemoryKind {
+  return typeof v === "string" && MEMORY_KINDS.includes(v as MemoryKind);
+}
+function isScopeLevel(v: unknown): v is ScopeLevel {
+  return typeof v === "string" && SCOPE_LEVELS.includes(v as ScopeLevel);
+}
+function isTrust(v: unknown): v is Trust {
+  return typeof v === "string" && TRUSTS.includes(v as Trust);
+}
+function isMemoryStatus(v: unknown): v is MemoryStatus {
+  return typeof v === "string" && MEMORY_STATUSES.includes(v as MemoryStatus);
+}
+
+function matchesQuery(m: MemoryRecord, q?: string): boolean {
+  if (!q || q.trim() === "") return true;
+  const needle = q.trim().toLowerCase();
+  const hay =
+    `${m.title}\n${m.applies_when}\n${m.content}`.toLowerCase();
+  return hay.includes(needle);
+}
+
+function memoryToListItem(m: MemoryRecord): MemoryListItem {
+  return {
+    id: m.id,
+    kind: m.kind,
+    level: m.scope.level,
+    trust: m.trust,
+    status: m.status,
+    title: m.title,
+    applies_when: m.applies_when,
+    content: m.content.slice(0, MAX_PREVIEW_CHARS),
+    helpful: m.stats.helpful,
+    harmful: m.stats.harmful,
+    updated_at: m.updated_at,
+  };
+}
+
 export function createAdmin(home = defaultAmemHome()) {
   const cfg = () => loadConfig(home);
 
-  return {
-    listMemories(limit = 50): AdminResult {
+  function listMemories(limit?: number): AdminResult;
+  function listMemories(input?: ListMemoriesInput): AdminResult;
+  function listMemories(input?: number | ListMemoriesInput): AdminResult {
+    // Legacy number overload: keep old behavior for plugin.ts and CLI callers.
+    if (typeof input === "number") {
+        const all = new MemoryStore(home).listAll();
+        all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+        return {
+          ok: true,
+          data: {
+            total: all.length,
+            items: all.slice(0, input).map(memoryToListItem),
+          },
+        };
+      }
+
+      const opts: ListMemoriesInput =
+        typeof input === "number" ? { page: 1, pageSize: 20 } : input ?? { page: 1, pageSize: 20 };
+
+      if (typeof opts.page !== "undefined" && (typeof opts.page !== "number" || !Number.isFinite(opts.page) || opts.page < 1 || Math.floor(opts.page) !== opts.page)) {
+        return { ok: false, error: "bad_request", message: "page must be a positive integer", status: 400 };
+      }
+      if (typeof opts.pageSize !== "undefined" && !ALLOWED_PAGE_SIZES.includes(opts.pageSize)) {
+        return { ok: false, error: "bad_request", message: "pageSize must be 20, 50 or 100", status: 400 };
+      }
+      if (opts.kind != null && !isMemoryKind(opts.kind)) {
+        return { ok: false, error: "bad_request", message: "invalid kind", status: 400 };
+      }
+      if (opts.level != null && !isScopeLevel(opts.level)) {
+        return { ok: false, error: "bad_request", message: "invalid level", status: 400 };
+      }
+      if (opts.trust != null && !isTrust(opts.trust)) {
+        return { ok: false, error: "bad_request", message: "invalid trust", status: 400 };
+      }
+      if (opts.status != null && !isMemoryStatus(opts.status)) {
+        return { ok: false, error: "bad_request", message: "invalid status", status: 400 };
+      }
+
+      const pageSize: 20 | 50 | 100 = opts.pageSize ?? 20;
+      const page = opts.page ?? 1;
+
       const all = new MemoryStore(home).listAll();
       all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
+      const filtered = all.filter((m) => {
+        if (!matchesQuery(m, opts.q)) return false;
+        if (opts.kind != null && m.kind !== opts.kind) return false;
+        if (opts.level != null && m.scope.level !== opts.level) return false;
+        if (opts.trust != null && m.trust !== opts.trust) return false;
+        if (opts.status != null && m.status !== opts.status) return false;
+        return true;
+      });
+
+      function countFacet<K extends string>(key: keyof ListMemoriesInput, values: readonly K[], getValue: (m: MemoryRecord) => K): Record<K, number> {
+        const counts = {} as Record<K, number>;
+        for (const v of values) counts[v] = 0;
+        for (const m of all) {
+          if (!matchesQuery(m, opts.q)) continue;
+          if (opts.kind != null && key !== "kind" && m.kind !== opts.kind) continue;
+          if (opts.level != null && key !== "level" && m.scope.level !== opts.level) continue;
+          if (opts.trust != null && key !== "trust" && m.trust !== opts.trust) continue;
+          if (opts.status != null && key !== "status" && m.status !== opts.status) continue;
+          const v = getValue(m);
+          counts[v] = (counts[v] ?? 0) + 1;
+        }
+        return counts;
+      }
+
+      const total = filtered.length;
+      const effectivePage = total === 0 ? 1 : page;
+      const start = (effectivePage - 1) * pageSize;
+      const pageItems = start >= total && total > 0 ? [] : filtered.slice(start, start + pageSize).map(memoryToListItem);
+
       return {
         ok: true,
         data: {
-          total: all.length,
-          items: all.slice(0, limit).map((m) => ({
-            id: m.id,
-            kind: m.kind,
-            level: m.scope.level,
-            trust: m.trust,
-            status: m.status,
-            title: m.title,
-            applies_when: m.applies_when,
-            content: m.content.slice(0, 200),
-            helpful: m.stats.helpful,
-            harmful: m.stats.harmful,
-            updated_at: m.updated_at,
-          })),
+          items: pageItems,
+          total,
+          page: effectivePage,
+          pageSize,
+          facets: {
+            kind: countFacet("kind", MEMORY_KINDS, (m) => m.kind),
+            level: countFacet("level", SCOPE_LEVELS, (m) => m.scope.level),
+            trust: countFacet("trust", TRUSTS, (m) => m.trust),
+            status: countFacet("status", MEMORY_STATUSES, (m) => m.status),
+          },
         },
       };
-    },
+    }
+
+  return {
+    listMemories,
 
     getMemory(id: string): AdminResult {
       const m = new MemoryStore(home).readById(id);
@@ -222,9 +382,15 @@ export function createAdmin(home = defaultAmemHome()) {
 
     getConfig(): AdminResult {
       const configPath = paths(home).config;
+      const raw = loadConfig(home);
+      const { api_key: _apiKey, ...llmRest } = raw.llm;
+      const safeConfig = {
+        ...raw,
+        llm: { ...llmRest, has_api_key: !!resolveLlmApiKey(raw) },
+      };
       return {
         ok: true,
-        data: { path: configPath, config: loadConfig(home) },
+        data: { path: configPath, config: safeConfig },
       };
     },
 
@@ -247,6 +413,15 @@ export function createAdmin(home = defaultAmemHome()) {
         const merged = mergeConfigOverlay(base, extracted);
         merged.embedding = base.embedding;
         merged.privacy = base.privacy;
+
+        const apiKeyReplacement =
+          body != null && typeof body === "object" && "api_key_replacement" in body
+            ? String((body as Record<string, unknown>).api_key_replacement ?? "")
+            : "";
+        if (apiKeyReplacement) {
+          merged.llm.api_key = apiKeyReplacement;
+        }
+
         const configPath = paths(home).config;
         const disk = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
         writeAmemConfigFile(home, merged, disk);
@@ -255,7 +430,7 @@ export function createAdmin(home = defaultAmemHome()) {
         return {
           ok: false,
           error: "internal",
-          message: e instanceof Error ? e.message : String(e),
+          message: "internal error",
           status: 500,
         };
       }

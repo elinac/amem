@@ -10,11 +10,44 @@ import {
   extractEditableConfigPatch,
   loadConfig,
   mergeConfigOverlay,
+  parseSimpleToml,
   preservePrivacyTomlSection,
   resolveLlmApiKey,
   validateEditableConfigPatch,
   writeAmemConfigFile,
 } from "./config.js";
+
+describe("DSH admin config TOML", () => {
+  it("defaults panel auth off and round-trips an explicit opt-in", () => {
+    const cfg = defaultConfig("u");
+    expect(cfg.dsh.admin.auth_enabled).toBe(false);
+    cfg.dsh.admin.auth_enabled = true;
+    expect(parseSimpleToml(configToToml(cfg)).dsh.admin.auth_enabled).toBe(true);
+  });
+
+  it("round-trips DSH admin security settings", () => {
+    const cfg = defaultConfig("u");
+    cfg.dsh.admin.allowed_origins = ["http://127.0.0.1:3000"];
+    cfg.dsh.admin.session_ttl_minutes = 480;
+    cfg.dsh.admin.auth_failure_limit = 8;
+    expect(parseSimpleToml(configToToml(cfg)).dsh.admin).toEqual(cfg.dsh.admin);
+  });
+
+  it("falls back when allowed_origins is a scalar", () => {
+    const parsed = parseSimpleToml(`
+[dsh.admin]
+allowed_origins = "http://127.0.0.1:3000"
+session_ttl_minutes = 30
+auth_failure_limit = 3
+`);
+    expect(parsed.dsh.admin.allowed_origins).toEqual([
+      "http://127.0.0.1",
+      "http://localhost",
+    ]);
+    expect(parsed.dsh.admin.session_ttl_minutes).toBe(30);
+    expect(parsed.dsh.admin.auth_failure_limit).toBe(3);
+  });
+});
 
 describe("escapeTomlString", () => {
   it("escapes quotes and backslashes", () => {

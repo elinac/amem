@@ -27,6 +27,7 @@ import {
 import { buildContextPack, extractSituation, recall } from "@amem/retrieval";
 import { ingestCursorTranscripts } from "@amem/adapter-cursor";
 import { compileCapabilities, materializeProposal } from "@amem/compiler";
+import { DshTokenStore, type DshAdminScope } from "@amem/adapter-dsh";
 import { runList, type ListKind } from "./list.js";
 import { defaultExportName, runExport } from "./export.js";
 
@@ -48,9 +49,57 @@ Usage:
   amem compile --target cursor|claude-code|dsh [--out <dir>]
   amem ingest-transcript --host cursor [--dir <path>]
   amem install --host cursor|dsh
+  amem auth issue --target dsh --scopes memory:read,config:read [--ttl 8h]
+  amem auth list
+  amem auth revoke <token-id>
   amem rebuild-index
   amem forget <id>
 `);
+}
+
+export function parseDurationMs(input: string): number {
+  const trimmed = input.trim();
+  const match = trimmed.match(/^(\d+)([mhd])$/i);
+  if (!match) {
+    throw new Error("duration must be <number>m|h|d");
+  }
+  const value = Number(match[1]);
+  const unit = match[2]!.toLowerCase();
+  if (!Number.isInteger(value) || value <= 0) {
+    throw new Error("duration must be a positive integer");
+  }
+  const ms =
+    unit === "m" ? value * 60_000 : unit === "h" ? value * 3_600_000 : value * 86_400_000;
+  const maxMs = 365 * 86_400_000;
+  if (ms > maxMs) {
+    throw new Error("duration cannot exceed 365 days");
+  }
+  return ms;
+}
+
+export function runAuthIssue(
+  home: string,
+  target: string,
+  scopesRaw: string,
+  ttlRaw: string,
+): { token: string; record: { id: string; scopes: DshAdminScope[]; createdAt: string; expiresAt: string } } {
+  if (target !== "dsh") {
+    throw new Error("issue only supports --target dsh");
+  }
+  const scopes = scopesRaw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean) as DshAdminScope[];
+  const ttlMs = parseDurationMs(ttlRaw);
+  return new DshTokenStore(home).issue(scopes, ttlMs);
+}
+
+export function runAuthList(home: string): { id: string; scopes: DshAdminScope[]; createdAt: string; expiresAt: string; lastUsedAt?: string; revokedAt?: string }[] {
+  return new DshTokenStore(home).list();
+}
+
+export function runAuthRevoke(home: string, id: string): boolean {
+  return new DshTokenStore(home).revoke(id);
 }
 
 function resolveRepoFile(...parts: string[]): string | undefined {
@@ -99,7 +148,7 @@ function installDsh(home: string): void {
 const mod = await import(${JSON.stringify(adapterFileUrl)});
 export const name = "amem-dsh-host";
 // Cordis Loader only sees THIS module — re-export inject so apply waits for services.
-export const inject = mod.inject ?? ["webServer", "connection"];
+export const inject = mod.inject ?? ["webServer"];
 export function apply(ctx) {
   mod.apply(ctx, {
     amemHome: ${JSON.stringify(homePath)},
@@ -170,6 +219,8 @@ export function apply(ctx) {
         hostWrapper: wrapperUrl,
         ui: uiFileUrl,
         startHint: patchMerged ? "dsh web" : `dsh web --patch "${overlayPath}"`,
+        authHint:
+          "amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read",
       },
       null,
       2,
@@ -197,6 +248,7 @@ async function main(): Promise<void> {
       p.manifests,
       p.queue,
       p.logs,
+      p.auth,
       p.capabilities,
       join(p.capabilities, "skills"),
       join(p.capabilities, ".proposals"),
@@ -455,6 +507,38 @@ async function main(): Promise<void> {
     return;
   }
 
+  if (cmd === "auth") {
+    const sub = argv[1];
+    if (sub === "issue") {
+      const targetIdx = argv.indexOf("--target");
+      const scopesIdx = argv.indexOf("--scopes");
+      const ttlIdx = argv.indexOf("--ttl");
+      const target = targetIdx >= 0 ? argv[targetIdx + 1] : undefined;
+      const scopesRaw = scopesIdx >= 0 ? argv[scopesIdx + 1] : undefined;
+      const ttlRaw = ttlIdx >= 0 && argv[ttlIdx + 1] ? argv[ttlIdx + 1]! : "8h";
+      if (!target || !scopesRaw) {
+        throw new Error("usage: amem auth issue --target dsh --scopes ... [--ttl 8h]");
+      }
+      const { token, record } = runAuthIssue(home, target, scopesRaw, ttlRaw);
+      console.log(JSON.stringify({ ok: true, token, record }, null, 2));
+      return;
+    }
+    if (sub === "list") {
+      const tokens = runAuthList(home);
+      console.log(JSON.stringify({ ok: true, tokens }, null, 2));
+      return;
+    }
+    if (sub === "revoke") {
+      const id = argv[2];
+      if (!id) throw new Error("usage: amem auth revoke <token-id>");
+      const ok = runAuthRevoke(home, id);
+      if (!ok) throw new Error(`token not found: ${id}`);
+      console.log(JSON.stringify({ ok: true, revoked: id }, null, 2));
+      return;
+    }
+    throw new Error("usage: amem auth issue|list|revoke ...");
+  }
+
   if (cmd === "list") {
     const kindArg = argv[1] && !argv[1].startsWith("-") ? argv[1] : "all";
     const allowed: ListKind[] = ["memories", "skills", "proposals", "all"];
@@ -518,7 +602,9 @@ async function main(): Promise<void> {
   process.exitCode = 1;
 }
 
-main().catch((e) => {
-  console.error(e instanceof Error ? e.message : e);
-  process.exitCode = 1;
-});
+if (import.meta.url === pathToFileURL(process.argv[1] ?? "").href) {
+  main().catch((e) => {
+    console.error(e instanceof Error ? e.message : e);
+    process.exitCode = 1;
+  });
+}

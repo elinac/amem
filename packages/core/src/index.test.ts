@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   CanonicalEventSchema,
   ExtractCandidatesSchema,
@@ -8,10 +11,25 @@ import {
   evidenceQuotesValid,
   isSafeId,
   normalizeWorkspaceRoot,
+  paths,
   redactDeep,
   redactString,
   sanitizeId,
 } from "./index.js";
+
+describe("paths", () => {
+  let home: string;
+  afterEach(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+  });
+
+  it("includes DSH auth and audit paths", () => {
+    home = mkdtempSync(join(tmpdir(), "amem-paths-"));
+    expect(paths(home).auth).toBe(join(home, "auth"));
+    expect(paths(home).dshTokens).toBe(join(home, "auth", "dsh-tokens.json"));
+    expect(paths(home).dshRpcAudit).toBe(join(home, "logs", "dsh-rpc-audit.jsonl"));
+  });
+});
 
 describe("normalizeWorkspaceRoot", () => {
   it("converts Cursor /d:/ paths", () => {

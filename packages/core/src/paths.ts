@@ -16,6 +16,9 @@ export function paths(home = amemHome()) {
     manifests: join(home, "manifests"),
     queue: join(home, "queue"),
     logs: join(home, "logs"),
+    auth: join(home, "auth"),
+    dshTokens: join(home, "auth", "dsh-tokens.json"),
+    dshRpcAudit: join(home, "logs", "dsh-rpc-audit.jsonl"),
     index: join(home, "index.sqlite"),
     capabilities: join(home, "capabilities"),
   } as const;
