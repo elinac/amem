@@ -1,88 +1,88 @@
-# Task 1 报告：Core — escapeTomlString + configToToml + validate/merge/privacy
+# Task 1 报告：配置、路径与安全默认值
 
-## 实现内容
+分支：`feat/dsh-auth-rpc-workbench`  
+提交：`8a1e1a4` — `feat(core): add DSH admin security config`
 
-在 `packages/core/src/config.ts` 中新增并导出：
+## 实现摘要
 
-| 符号 | 说明 |
+| 产出 | 位置 |
 |------|------|
-| `escapeTomlString` | 双引号 TOML 字符串转义 `\`、`"`、`\n`、`\r` |
-| `configToToml` | 所有字符串字段经 `escapeTomlString`；`[privacy]` 仍输出空数组占位 |
-| `EditableConfigPatch` | 仅 §3.2 可编辑字段的类型 |
-| `extractEditableConfigPatch` | 从 `{ config }` 或顶层对象抽取 patch；忽略 embedding/privacy；类型错误返回 400 形 `{ error, message }` |
-| `validateEditableConfigPatch` | 规格 §4.2：mode 枚举、字符串危险字符、api_key_env 非空且非密钥形、整数 ≥0、global_min_lift ≥0 |
-| `mergeConfigOverlay` | 深合并 patch 中已出现键；不修改 embedding/privacy |
-| `preservePrivacyTomlSection` | 磁盘存在 `[privacy]` 段时替换生成 TOML 中对应段 |
-| `writeAmemConfigFile` | `configToToml` → preserve → tmp + `renameSync` 原子写 `paths(home).config` |
+| `AmemConfig["dsh"]["admin"]` + `auto_inject` | `packages/core/src/config.ts` |
+| `paths(home).auth` / `.dshTokens` / `.dshRpcAudit` | `packages/core/src/paths.ts` |
+| TOML `[dsh]`、`[dsh.admin]`、字符串数组读写 | `parseSimpleToml` / `configToToml` |
+| Origin / TTL / 失败上限校验 | `sanitizeDshConfig`（读盘后） |
 
-新建 `packages/core/src/config.test.ts`（与 task brief 一致，10 个用例）。
+### 默认值
 
-## TDD 证据
+- `allowed_origins`: `http://127.0.0.1`, `http://localhost`
+- `session_ttl_minutes`: 480（合法范围 1–1440，越界 clamp）
+- `auth_failure_limit`: 8（合法范围 1–100，越界 clamp）
+- `auto_inject`: false
 
-### RED（实现前）
+### 辅助符号（导出供后续任务复用）
+
+- `unescapeTomlString` / `parseTomlStringArray` / `isValidAllowedOrigin`
+
+Origin 规则：`http(s)://host[:port]`，无 path/query/hash/userinfo；与 `URL` 规范化后的 `protocol//host` 字符串完全一致。
+
+## TDD
+
+### RED（仅加测试、未实现）
 
 ```text
-cd d:/dev/workspaces/amem/packages/core; pnpm test -- src/config.test.ts
+pnpm --filter @amem/core test
 ```
 
-结果：`10 failed` — 典型错误 `(0 , escapeTomlString) is not a function`；`configToToml` 未转义 `user_id = "x"y"`。
+- `config.test.ts`: `Cannot read properties of undefined (reading 'admin')`
+- `index.test.ts`: `paths(home).auth` 等为 `undefined`
 
 ### GREEN（实现后）
 
-同一命令：
-
 ```text
- Test Files  1 passed (1)
-      Tests  10 passed (10)
- Exit code: 0
+pnpm --filter @amem/core test
+pnpm --filter @amem/core build
 ```
+
+- 测试：24 passed（2 files）
+- 构建：`tsc` exit 0
 
 ## 变更文件
 
-- `packages/core/src/config.ts` — 修改（转义、patch/校验/合并/privacy/写盘）
-- `packages/core/src/config.test.ts` — 新建
+- `packages/core/src/config.ts`
+- `packages/core/src/config.test.ts`
+- `packages/core/src/paths.ts`
+- `packages/core/src/index.test.ts`
 
-未执行 git add/commit（仓库尚无 commit，按任务约束）。
+未暂存/提交：`ocr-review.md`（未触碰）、`.superpowers/sdd/task-1-brief.md`（工作区有无关改动，未纳入 commit）。
 
 ## 自审
 
-**符合 brief / spec：**
+**符合 brief：**
 
-- 磁盘 overlay 语义由 `mergeConfigOverlay` + 后续 adapter 组合完成；本任务不写 `defaultConfig()` 基线。
-- 字符串全字段转义（含 embedding 段字符串与 `mode`）。
-- privacy 写盘路径通过 `preservePrivacyTomlSection` + `writeAmemConfigFile` 第三参数或读盘。
-- 无数值上界；未强制 external 的 URL。
+- 类型与默认值与计划一致。
+- 数组序列化使用 `escapeTomlString`；反序列化使用 `parseTomlStringArray` + `unescapeTomlString`。
+- 路径：`auth/`、`auth/dsh-tokens.json`、`logs/dsh-rpc-audit.jsonl`。
+- 验收用例 `round-trips DSH admin security settings` 与 paths 断言已通过。
 
-**实现细节：**
+**实现说明：**
 
-- `preservePrivacyTomlSection` 使用 `(?=^\[|$)` 而非 brief 中的 `\Z`（JavaScript 正则无 `\Z`，`\Z` 会误匹配字面 `Z`）。
-- `extractEditableConfigPatch` 对嵌套对象做类型检查；数组顶层/body 拒绝。
-- `validateEditableConfigPatch` 失败统一 `{ ok: false, error: "bad_request", message }`。
+- `parseSimpleToml` 对所有双引号标量改用 `unescapeTomlString`（此前为 raw slice），与 `configToToml` 转义行为一致；现有 14 个 config 测试仍全绿。
+- 非法 origin 在读盘时过滤；若过滤后为空则回退默认 origin 列表（避免空 CSRF 允许列表）。
+- `preservePrivacyTomlSection` 仍只替换 `[privacy]` 段；`[dsh]` 写在 privacy 之后，写盘合并逻辑未改，privacy 相关测试仍通过。
 
-**可改进（非阻塞）：**
+**非本任务范围（未做）：**
 
-- `extract` 对 `llm.mode` 仍为 string，非法 mode 仅在 validate 阶段拒绝（与测试一致）。
-- `parseSimpleToml` 仍不读 privacy 数组（spec 已知；由段保留补偿）。
+- `EditableConfigPatch` / RPC / token store。
+- privacy 数组 TOML 解析（仍为段保留策略）。
 
 ## 关注点
 
-- 无。
-- 若将来在 `[privacy]` 后追加新 TOML 段，段匹配逻辑需扩展（当前与 spec 一致：privacy 通常为末段）。
+- 读盘 clamp 会静默修正越界 TTL/失败次数；若后续 DSH 面板编辑 dsh 段，需在 PUT 路径单独做显式校验与错误响应（Task 2+）。
+- 未导出 `sanitizeDshConfig`；外部应通过 `loadConfig` / `parseSimpleToml` 获得已消毒配置。
 
-## Review 修复（PRIVACY_SECTION_RE 末行无 `\n`）
+## 验证命令（Windows PowerShell）
 
-**问题：** `PRIVACY_SECTION_RE` 使用 `(?:.*\n)*?`，磁盘 `[privacy]` 最后一行若无尾随换行则匹配失败，`preservePrivacyTomlSection` 退回生成 TOML（空 `[]`），覆盖手改 privacy。
-
-**修复：** 将段内行匹配改为 `(?:.*(?:\n|$))*?`，末行可在 EOF 结束。
-
-**测试：** `preservePrivacyTomlSection` 与 `writeAmemConfigFile` 各增 1 例（末行无尾随换行）。
-
-```text
-cd d:/dev/workspaces/amem/packages/core; pnpm test -- src/config.test.ts
-```
-
-```text
- Test Files  1 passed (1)
-      Tests  12 passed (12)
- Exit code: 0
+```powershell
+pnpm --filter @amem/core test
+pnpm --filter @amem/core build
 ```

@@ -95,4 +95,51 @@ exclude_workspaces = ["/x"]
     expect(r.ok).toBe(true);
     expect(loadConfig(h).llm.mode).toBe("host");
   });
+
+  it("reports api_key_source without exposing the key", () => {
+    const h = setup();
+    const cfg = loadConfig(h);
+    cfg.llm.api_key_env = "AMEM_TEST_UNSET_KEY";
+    writeFileSync(join(h, "amem.toml"), configToToml(cfg));
+    delete process.env.AMEM_TEST_UNSET_KEY;
+
+    const first = createAdmin(h).getConfig();
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const none = first.data as {
+      config: { llm: { api_key?: string; has_api_key: boolean; api_key_source: string } };
+    };
+    expect(none.config.llm.api_key).toBeUndefined();
+    expect(none.config.llm.has_api_key).toBe(false);
+    expect(none.config.llm.api_key_source).toBe("none");
+
+    cfg.llm.api_key = "sk-inline-secret";
+    writeFileSync(join(h, "amem.toml"), configToToml(cfg));
+    const second = createAdmin(h).getConfig();
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    const inline = second.data as {
+      config: { llm: { api_key?: string; has_api_key: boolean; api_key_source: string } };
+    };
+    expect(inline.config.llm.api_key).toBeUndefined();
+    expect(inline.config.llm.has_api_key).toBe(true);
+    expect(inline.config.llm.api_key_source).toBe("inline");
+  });
+
+  it("putConfig keeps hand-written comments in amem.toml", () => {
+    const h = setup((t) =>
+      t
+        .replace("# amem config", "# amem config\n# keep me")
+        .replace('model = "openai/gpt-4.1-mini"', 'model = "openai/gpt-4.1-mini" # note'),
+    );
+    const cfg = loadConfig(h);
+    const r = createAdmin(h).putConfig({
+      config: { ...cfg, llm: { ...cfg.llm, mode: "external" } },
+    });
+    expect(r.ok).toBe(true);
+    const text = readFileSync(join(h, "amem.toml"), "utf8");
+    expect(text).toContain("# keep me");
+    expect(text).toContain("# note");
+    expect(text).toContain('mode = "external"');
+  });
 });

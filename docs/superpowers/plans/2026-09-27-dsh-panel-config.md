@@ -14,12 +14,13 @@
 
 - 写盘基线必须是 `loadConfig(home)`（磁盘），**禁止**用 `defaultConfig()` 作合并基线。
 - PUT **忽略** body 中的 `embedding` / `privacy`；始终保留磁盘 base 的这两段。
-- privacy 写盘：从原 `amem.toml` **原样保留 `[privacy]` 段**拼回（因 `parseSimpleToml` 不读数组）。
+- 写盘：`updateTomlText(diskToml, merged)` 行级改写，只动受管键；`[privacy]`、手写注释、未知键与行尾符按磁盘原样保留（**2026-10-01 修订**，替代原「整文件重生成 + `[privacy]` 段拼回」）。
 - 校验规则：整数 `Number.isFinite && Number.isInteger && >= 0`；`global_min_lift` 有限且 `>= 0`；**无数值上界**（O3 跳过）；`external` 不强制 URL（O4 跳过）。
-- `api_key_env`：只存环境变量名；启发式拒绝像密钥的值（`sk-` 前缀或过长 token 形）。
+- `api_key_env`：只存环境变量名；启发式拒绝像密钥的值（`sk-` 前缀，或长度 ≥ 40 的非常规变量名形）——**已实现**（`looksLikeSecretValue`）。
+- `api_key`：允许写入真实密钥（2026-10-01 用户裁决解除原非目标）；留空表示不修改磁盘值；`getConfig` 不回显密钥，只回 `has_api_key` 与 `api_key_source`。
 - 鉴权沿用现有 `checkAuth`；成功响应解包为 `data`。
 - `config` **不是** list tab：`isListTab` 不变，切 Tab 不请求 `/proposals`。
-- Tab 顺序：`记忆 | 能力 | 提案 | 运维 | 配置 | 说明`。
+- Tab 顺序：`记忆 | 能力 | 提案 | 审阅 | 运维 | 配置 | 说明`（七 Tab，含后续加入的「审阅」）。
 - locale：新文案 `zh`/`en` 成对；更新 `help.tabsBody`。
 - 用户未要求时不要自动 `git commit`；计划中的 Commit 步骤仅在用户明确要求提交时执行。
 
@@ -29,14 +30,14 @@
 
 | File | Responsibility |
 |------|----------------|
-| `packages/core/src/config.ts` | `escapeTomlString`；`configToToml` 用转义；`validateEditableConfigPatch`；`extractEditableConfigPatch`；`mergeConfigOverlay`；`preservePrivacyTomlSection`；`writeConfigAtomic`（或等价拆分） |
+| `packages/core/src/config.ts` | `escapeTomlString`；`configToToml`（全新生成）；`updateTomlText`（行级改写）；`validateEditableConfigPatch`；`extractEditableConfigPatch`；`mergeConfigOverlay`；`preservePrivacyTomlSection`（仅全新生成路径）；`llmApiKeySource`；`writeAmemConfigFile` 原子替换 |
 | `packages/core/src/config.test.ts` | core 配置校验 / TOML 转义 / privacy 保留 / overlay 单测（新建） |
-| `packages/adapter-dsh/src/admin.ts` | `getConfig` / `putConfig` |
+| `packages/adapter-dsh/src/admin.ts` | `getConfig`（含 `api_key_source`）/ `putConfig` |
 | `packages/adapter-dsh/src/admin-config.test.ts` | admin 配置方法单测（新建） |
 | `packages/adapter-dsh/src/plugin.ts` | `GET/PUT /amem-api/config` |
 | `packages/amem-dsh-ui/client/locales.ts` | `tab.config` + config.* + 更新 `help.tabsBody` |
-| `packages/amem-dsh-ui/client/panel.tsx` | 配置 Tab UI + state |
-| `README.md` | 六 Tab + 配置一句 |
+| `packages/amem-dsh-ui/client/panel.tsx` | 配置 Tab UI + state（dirty 保护、保存反馈、密钥来源三态） |
+| `README.md` | 七 Tab + 配置能力说明（密钥可写、注释保留） |
 
 ---
 
@@ -609,11 +610,12 @@ git commit -m "feat(adapter-dsh): expose GET/PUT /amem-api/config"
 "config.section.llm": "LLM",
 "config.section.recall": "召回",
 "config.section.promotion": "晋升",
-"config.section.budget": "整合预算",
+"config.section.refine": "整合时的 LLM 精炼",
 "config.field.user_id": "user_id",
 "config.field.mode": "mode",
 "config.field.base_url": "base_url",
 "config.field.model": "model",
+"config.field.api_key": "API Key",
 "config.field.api_key_env": "api_key_env",
 "config.field.budget_tokens": "budget_tokens",
 "config.field.l0_items": "l0_items",
@@ -626,7 +628,7 @@ git commit -m "feat(adapter-dsh): expose GET/PUT /amem-api/config"
 "config.field.max_tokens": "max_tokens",
 "config.field.max_proposals": "max_proposals",
 "config.field.max_minutes": "max_minutes",
-"config.hintSecrets": "密钥只通过环境变量注入；此处只填变量名（api_key_env），不要粘贴真实 Key。",
+"config.hintSecrets": "密钥有两种来源：直接填入「API Key」写入 amem.toml（优先使用），或留空并改用「API Key 环境变量名」指向的环境变量。",
 "config.hintReload": "保存后新请求会重新读盘；若长期 worker 已缓存配置，可能需重启 dsh web。",
 "config.hintPrivacy": "privacy / embedding 请用手改 amem.toml；面板保存不会覆盖磁盘上的这些段。",
 ```
@@ -634,7 +636,7 @@ git commit -m "feat(adapter-dsh): expose GET/PUT /amem-api/config"
 更新 `help.tabsBody` zh：
 
 ```text
-记忆：浏览/召回/遗忘。能力：已入库 Skill 列表。提案：候选与应用。运维：doctor/flush/索引/整合/编译。配置：常用 amem.toml。说明：本页。
+记忆：浏览/召回/遗忘。能力：已入库 Skill 列表。提案：候选与应用。审阅：冲突裁决（待接入）。运维：doctor/flush/索引/整合/编译。配置：常用 amem.toml。说明：本页。
 ```
 
 en `help.tabsBody`：
@@ -750,10 +752,10 @@ const saveConfig = async () => {
 改为：
 
 ```text
-记忆 / 能力 / 提案 / 运维 / 配置 / 说明
+记忆 / 能力 / 提案 / 审阅 / 运维 / 配置 / 说明
 ```
 
-并加一句：配置 Tab 可编辑常用 `amem.toml`（不含真实 API Key；privacy/embedding 保留磁盘值）。
+并加一句：配置 Tab 可编辑常用 `amem.toml`（LLM 连通字段含真实 API Key 与环境变量名；手写注释、privacy/embedding 等未展示内容保留磁盘原值）。
 
 - [ ] **Step 6: Build UI client**
 
@@ -763,9 +765,11 @@ Expected: exit 0
 - [ ] **Step 7: Manual smoke**
 
 1. `dsh web` 打开面板 → 切「配置」→ 网络无 `/proposals`
-2. 改 `mode` 保存 → 磁盘 `amem.toml` 更新
+2. 改 `mode` 保存 → 磁盘 `amem.toml` 更新，且页面出现「已保存」提示
 3. 手改 `[privacy]` 非空 → 再面板保存 → privacy 仍非空
-4. 说明页文案含「配置」
+4. 手写注释与未知键（`key = "v" # note`）→ 面板保存后注释、未知键、行尾符仍在，且值未被注释污染
+5. 填一处修改后切 Tab → 弹「有未保存的修改」确认；未修改时保存按钮禁用
+6. 说明页文案含「配置」
 
 - [ ] **Step 8: Commit**（仅当用户要求时）
 

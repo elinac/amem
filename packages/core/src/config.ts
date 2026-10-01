@@ -211,8 +211,9 @@ export function parseSimpleToml(text: string): AmemConfig {
   const cfg = defaultConfig();
   let section = "";
   for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
+    // Strip trailing comments (quote-aware) so `key = "v" # note` reads as `v`.
+    const line = splitTomlTrailingComment(raw).code.trim();
+    if (!line) continue;
     const sec = line.match(/^\[([^\]]+)\]$/);
     if (sec) {
       section = sec[1]!;
@@ -348,6 +349,33 @@ export function resolveLlmApiKey(cfg: AmemConfig): string | undefined {
   if (!envName) return undefined;
   const fromEnv = process.env[envName];
   return fromEnv?.trim() ? fromEnv : undefined;
+}
+
+/**
+ * Which source `resolveLlmApiKey` would use right now, for UI display.
+ * Never exposes the key itself, only where it comes from.
+ */
+export function llmApiKeySource(cfg: AmemConfig): "inline" | "env" | "none" {
+  if (cfg.llm.api_key?.trim()) return "inline";
+  const envName = cfg.llm.api_key_env?.trim();
+  if (envName && process.env[envName]?.trim()) return "env";
+  return "none";
+}
+
+const SK_PREFIX_RE = /^sk-/i;
+const TOKEN_SHAPE_RE = /^[A-Za-z0-9_\-+/=]+$/;
+const CONVENTIONAL_ENV_NAME_RE = /^[A-Z][A-Z0-9_]*$/;
+
+/**
+ * Heuristic for `llm.api_key_env`: an environment variable name never looks like a
+ * pasted secret. Conventional UPPER_SNAKE names stay accepted even when long.
+ */
+export function looksLikeSecretValue(s: string): boolean {
+  const t = s.trim();
+  if (!t) return false;
+  if (SK_PREFIX_RE.test(t)) return true;
+  if (t.length < 40 || !TOKEN_SHAPE_RE.test(t)) return false;
+  return !CONVENTIONAL_ENV_NAME_RE.test(t);
 }
 
 function rejectDangerous(label: string, s: string, allowEmpty: boolean): string | null {
@@ -571,6 +599,11 @@ export function validateEditableConfigPatch(
     if (patch.llm.api_key_env != null) {
       const err = rejectDangerous("api_key_env", patch.llm.api_key_env, true);
       if (err) return validationFail(err);
+      if (looksLikeSecretValue(patch.llm.api_key_env)) {
+        return validationFail(
+          "api_key_env must be an environment variable name, not a secret value",
+        );
+      }
     }
   }
 
@@ -643,23 +676,186 @@ export function mergeConfigOverlay(base: AmemConfig, patch: EditableConfigPatch)
   return out;
 }
 
+/**
+ * Splice the disk `[privacy]` block into a freshly generated document. Only used by the
+ * full-regeneration path (`configToToml`); in-place saves go through `updateTomlText`,
+ * which leaves `[privacy]` untouched by construction.
+ */
 export function preservePrivacyTomlSection(diskToml: string, generatedToml: string): string {
   const diskMatch = diskToml.match(PRIVACY_SECTION_RE);
   if (!diskMatch) return generatedToml;
   return generatedToml.replace(PRIVACY_SECTION_RE, diskMatch[0]!);
 }
 
-export function writeAmemConfigFile(
-  home: string,
-  cfg: AmemConfig,
-  diskTomlForPrivacy?: string,
-): void {
+type TomlScalar = string | number | boolean | string[];
+
+function formatTomlScalar(value: TomlScalar): string {
+  if (typeof value === "string") return `"${escapeTomlString(value)}"`;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (Array.isArray(value)) return formatTomlStringArray(value);
+  return String(value);
+}
+
+/**
+ * Every section/key `configToToml` owns, except `[privacy]` (whose arrays the minimal
+ * reader cannot parse, so the panel must never rewrite it).
+ */
+function managedTomlEntries(cfg: AmemConfig): Record<string, Record<string, TomlScalar>> {
+  return {
+    identity: { user_id: cfg.identity.user_id },
+    llm: {
+      base_url: cfg.llm.base_url,
+      model: cfg.llm.model,
+      api_key: cfg.llm.api_key,
+      api_key_env: cfg.llm.api_key_env,
+      mode: cfg.llm.mode,
+    },
+    embedding: {
+      enabled: cfg.embedding.enabled,
+      base_url: cfg.embedding.base_url,
+      model: cfg.embedding.model,
+      dim: cfg.embedding.dim,
+    },
+    recall: {
+      budget_tokens: cfg.recall.budget_tokens,
+      l0_items: cfg.recall.l0_items,
+      l1_items: cfg.recall.l1_items,
+    },
+    promotion: {
+      instance_to_domain_min_instances: cfg.promotion.instance_to_domain_min_instances,
+      domain_to_global_min_domains: cfg.promotion.domain_to_global_min_domains,
+      domain_to_global_min_instances: cfg.promotion.domain_to_global_min_instances,
+      global_min_lift: cfg.promotion.global_min_lift,
+    },
+    "budget.consolidate": {
+      max_llm_calls: cfg.budget.consolidate.max_llm_calls,
+      max_tokens: cfg.budget.consolidate.max_tokens,
+      max_proposals: cfg.budget.consolidate.max_proposals,
+      max_minutes: cfg.budget.consolidate.max_minutes,
+      refine_proposals: cfg.budget.consolidate.refine_proposals,
+    },
+    dsh: { auto_inject: cfg.dsh.auto_inject },
+    "dsh.admin": {
+      allowed_origins: cfg.dsh.admin.allowed_origins,
+      session_ttl_minutes: cfg.dsh.admin.session_ttl_minutes,
+      auth_failure_limit: cfg.dsh.admin.auth_failure_limit,
+      auth_enabled: cfg.dsh.admin.auth_enabled,
+    },
+  };
+}
+
+function scanTomlSectionKeys(lines: string[]): Map<string, Set<string>> {
+  const found = new Map<string, Set<string>>();
+  let section = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const header = trimmed.match(/^\[([^\]]+)\]$/);
+    if (header) {
+      section = header[1]!;
+      continue;
+    }
+    const kv = trimmed.match(/^([A-Za-z0-9_]+)\s*=/);
+    if (!kv) continue;
+    let keys = found.get(section);
+    if (!keys) {
+      keys = new Set<string>();
+      found.set(section, keys);
+    }
+    keys.add(kv[1]!);
+  }
+  return found;
+}
+
+function splitTomlTrailingComment(line: string): { code: string; comment: string } {
+  let inString = false;
+  let escaped = false;
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]!;
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (inString) {
+      if (c === "\\") escaped = true;
+      else if (c === '"') inString = false;
+      continue;
+    }
+    if (c === '"') {
+      inString = true;
+      continue;
+    }
+    if (c === "#") return { code: line.slice(0, i), comment: line.slice(i) };
+  }
+  return { code: line, comment: "" };
+}
+
+/**
+ * Update only the managed keys of `diskToml`, leaving comments, unknown keys, formatting
+ * and unmanaged sections (`[privacy]`) intact. Missing managed keys are filled in right
+ * after their section header; wholly missing sections are appended at the end.
+ */
+export function updateTomlText(diskToml: string, cfg: AmemConfig): string {
+  if (!diskToml.trim()) return configToToml(cfg);
+  const entries = managedTomlEntries(cfg);
+  const eol = diskToml.includes("\r\n") ? "\r\n" : "\n";
+  const rawLines = diskToml.split(/\r?\n/);
+  const endsWithEol = rawLines.length > 1 && rawLines[rawLines.length - 1] === "";
+  const lines = endsWithEol ? rawLines.slice(0, -1) : rawLines.slice();
+  const present = scanTomlSectionKeys(lines);
+  const inserted = new Set<string>();
+  const out: string[] = [];
+  let section = "";
+  for (const line of lines) {
+    const trimmed = line.trim();
+    const header = trimmed.match(/^\[([^\]]+)\]$/);
+    if (header) {
+      section = header[1]!;
+      out.push(line);
+      const managed = entries[section];
+      if (!managed) continue;
+      const have = present.get(section);
+      for (const [key, value] of Object.entries(managed)) {
+        const token = `${section}\u0000${key}`;
+        if (have?.has(key) || inserted.has(token)) continue;
+        inserted.add(token);
+        out.push(`${key} = ${formatTomlScalar(value)}`);
+      }
+      continue;
+    }
+    const kv = trimmed.match(/^([A-Za-z0-9_]+)\s*=/);
+    const managed = entries[section];
+    if (!kv || !managed || !(kv[1]! in managed)) {
+      out.push(line);
+      continue;
+    }
+    const key = kv[1]!;
+    const indent = line.slice(0, line.length - line.trimStart().length);
+    const { comment } = splitTomlTrailingComment(line);
+    const suffix = comment ? ` ${comment}` : "";
+    out.push(`${indent}${key} = ${formatTomlScalar(managed[key]!)}${suffix}`);
+  }
+  const tail: string[] = [];
+  for (const [sectionName, managed] of Object.entries(entries)) {
+    if (present.has(sectionName)) continue;
+    if (tail.length > 0) tail.push("");
+    tail.push(`[${sectionName}]`);
+    for (const [key, value] of Object.entries(managed)) {
+      tail.push(`${key} = ${formatTomlScalar(value)}`);
+    }
+  }
+  if (tail.length > 0) {
+    if (out.length > 0 && out[out.length - 1]!.trim() !== "") out.push("");
+    out.push(...tail);
+    return `${out.join(eol)}${eol}`;
+  }
+  const text = out.join(eol);
+  return endsWithEol ? `${text}${eol}` : text;
+}
+
+export function writeAmemConfigFile(home: string, cfg: AmemConfig, diskToml?: string): void {
   const configPath = paths(home).config;
-  const disk =
-    diskTomlForPrivacy ??
-    (existsSync(configPath) ? readFileSync(configPath, "utf8") : "");
-  let text = configToToml(cfg);
-  text = preservePrivacyTomlSection(disk, text);
+  const disk = diskToml ?? (existsSync(configPath) ? readFileSync(configPath, "utf8") : "");
+  const text = updateTomlText(disk, cfg);
   const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
   try {
     writeFileSync(tmp, text, "utf8");

@@ -111,37 +111,83 @@ type ConfigFormState = {
   path: string | null;
   config: Record<string, unknown>;
   apiKeyReplacement: string;
+  /** Fingerprint of the editable fields as loaded from disk; drives the dirty state. */
+  baseline: string;
 };
 
 type LlmForm = {
   mode: string;
   base_url: string;
   model: string;
+  api_key_env: string;
   has_api_key: boolean;
+  api_key_source: "inline" | "env" | "none";
 };
 
-function readLlmForm(config: Record<string, unknown>): LlmForm {
-  const llm =
-    config.llm != null && typeof config.llm === "object" && !Array.isArray(config.llm)
-      ? (config.llm as Record<string, unknown>)
+function llmRecord(config: Record<string, unknown>): Record<string, unknown> {
+  return config.llm != null && typeof config.llm === "object" && !Array.isArray(config.llm)
+    ? (config.llm as Record<string, unknown>)
+    : {};
+}
+
+function readRefineProposals(config: Record<string, unknown>): boolean {
+  const budget =
+    config.budget != null && typeof config.budget === "object" && !Array.isArray(config.budget)
+      ? (config.budget as Record<string, unknown>)
       : {};
+  const consolidate =
+    budget.consolidate != null &&
+    typeof budget.consolidate === "object" &&
+    !Array.isArray(budget.consolidate)
+      ? (budget.consolidate as Record<string, unknown>)
+      : {};
+  return consolidate.refine_proposals === true;
+}
+
+function readLlmForm(config: Record<string, unknown>): LlmForm {
+  const llm = llmRecord(config);
+  const hasKey = llm.has_api_key === true;
+  // Older payloads carry only `has_api_key`; assume inline in that case.
+  const source: LlmForm["api_key_source"] =
+    llm.api_key_source === "env"
+      ? "env"
+      : llm.api_key_source === "inline"
+        ? "inline"
+        : hasKey
+          ? "inline"
+          : "none";
   return {
     mode: typeof llm.mode === "string" ? llm.mode : "stub",
     base_url: typeof llm.base_url === "string" ? llm.base_url : "",
     model: typeof llm.model === "string" ? llm.model : "",
-    has_api_key: llm.has_api_key === true,
+    api_key_env: typeof llm.api_key_env === "string" ? llm.api_key_env : "",
+    has_api_key: hasKey,
+    api_key_source: source,
   };
 }
 
 function patchLlm(
   config: Record<string, unknown>,
-  patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model">>,
+  patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model" | "api_key_env">>,
 ): Record<string, unknown> {
-  const llm =
-    config.llm != null && typeof config.llm === "object" && !Array.isArray(config.llm)
-      ? { ...(config.llm as Record<string, unknown>) }
-      : {};
-  return { ...config, llm: { ...llm, ...patch } };
+  return { ...config, llm: { ...llmRecord(config), ...patch } };
+}
+
+/** Only the fields this tab can edit, so unrelated config keys never mark it dirty. */
+function editableFingerprint(state: ConfigFormState): string {
+  const llm = readLlmForm(state.config);
+  return JSON.stringify([
+    llm.mode,
+    llm.base_url,
+    llm.model,
+    llm.api_key_env,
+    readRefineProposals(state.config),
+    state.apiKeyReplacement.trim(),
+  ]);
+}
+
+function isConfigDirty(state: ConfigFormState | null): boolean {
+  return state != null && editableFingerprint(state) !== state.baseline;
 }
 
 function AmemPanel({ t: translate }: { t?: Translate }) {
@@ -282,29 +328,55 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     if (tab === "proposals") void loadProposals();
   }, [tab, authState.kind, loadSkills, loadProposals]);
 
-  const loadConfig = useCallback(async () => {
-    if (authState.kind !== "ready") return;
-    setConfigBusy(true);
-    setConfigMsg(null);
-    setTabError(null);
-    const result = await rpc.config.get();
-    if (!result.ok) {
-      handleAuthError(result.error);
-      setTabError(rpcErrorMessage(result.error));
-      setConfigState(null);
-    } else {
-      setConfigState({
-        path: result.result.path,
-        config: (result.result.config ?? {}) as Record<string, unknown>,
-        apiKeyReplacement: "",
-      });
-    }
-    setConfigBusy(false);
-  }, [authState.kind, handleAuthError]);
+  const loadConfig = useCallback(
+    async (opts?: { keepMsg?: boolean }) => {
+      if (authState.kind !== "ready") return;
+      setConfigBusy(true);
+      if (!opts?.keepMsg) setConfigMsg(null);
+      setTabError(null);
+      const result = await rpc.config.get();
+      if (!result.ok) {
+        handleAuthError(result.error);
+        setTabError(rpcErrorMessage(result.error));
+        setConfigState(null);
+      } else {
+        const loaded: ConfigFormState = {
+          path: result.result.path,
+          config: (result.result.config ?? {}) as Record<string, unknown>,
+          apiKeyReplacement: "",
+          baseline: "",
+        };
+        setConfigState({ ...loaded, baseline: editableFingerprint(loaded) });
+      }
+      setConfigBusy(false);
+    },
+    [authState.kind, handleAuthError],
+  );
 
   useEffect(() => {
     if (tab === "config") void loadConfig();
   }, [tab, loadConfig]);
+
+  /** Leaves the config tab only after confirming that unsaved edits are discarded. */
+  const requestTab = useCallback(
+    (next: Tab) => {
+      if (next === tab) return;
+      if (
+        tab === "config" &&
+        isConfigDirty(configState) &&
+        !confirm(format(t, "config.confirmDiscard"))
+      ) {
+        return;
+      }
+      setTab(next);
+    },
+    [tab, configState, t],
+  );
+
+  const reloadConfig = useCallback(() => {
+    if (isConfigDirty(configState) && !confirm(format(t, "config.confirmDiscard"))) return;
+    void loadConfig();
+  }, [configState, loadConfig, t]);
 
   const onUnlock = useCallback(async (token: string) => {
     setAuthState({ kind: "unlocking" });
@@ -406,14 +478,16 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
       configState.config,
       configState.apiKeyReplacement.trim() || undefined,
     );
-    setConfigBusy(false);
     if (!result.ok) {
+      setConfigBusy(false);
       handleAuthError(result.error);
       setTabError(rpcErrorMessage(result.error));
       return;
     }
+    // Reload with the message kept, then report success: the reload also resets the
+    // dirty baseline, so the button returns to its disabled state.
+    await loadConfig({ keepMsg: true });
     setConfigMsg(format(t, "config.saved", { path: configState.path ?? "" }));
-    void loadConfig();
   }, [t, configState, loadConfig, handleAuthError]);
 
   const updateFilter = useCallback(
@@ -703,52 +777,115 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
   const renderConfig = () => {
     if (!configState) return createElement(SkeletonList, { count: 3 });
     const llm = readLlmForm(configState.config);
-    const setLlm = (patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model">>) =>
+    const dirty = isConfigDirty(configState);
+    const setLlm = (
+      patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model" | "api_key_env">>,
+    ) =>
       setConfigState((prev) =>
         prev ? { ...prev, config: patchLlm(prev.config, patch) } : prev,
+      );
+    const keySourceKey: AmemKey =
+      llm.api_key_source === "inline"
+        ? "config.keySource.inline"
+        : llm.api_key_source === "env"
+          ? "config.keySource.env"
+          : "config.keySource.none";
+    // Label names the control explicitly; help text is only referenced by id, so screen
+    // readers announce the short label instead of the whole paragraph.
+    const field = (
+      id: string,
+      labelKey: AmemKey,
+      control: React.ReactElement,
+      opts?: {
+        helpKey?: AmemKey;
+        helpVars?: Record<string, string | number>;
+        extra?: React.ReactElement | null;
+      },
+    ) =>
+      createElement(
+        "div",
+        { style: styles.configField, key: id },
+        createElement("label", { htmlFor: id, style: styles.configLabel }, format(t, labelKey)),
+        opts?.helpKey
+          ? createElement(
+              "span",
+              { id: `${id}-help`, style: styles.configHelp },
+              format(t, opts.helpKey, opts.helpVars),
+            )
+          : null,
+        control,
+        opts?.extra ?? null,
       );
     return createElement(
       "div",
       null,
       createElement(
         "p",
-        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
-        format(t, "config.hintWave1"),
+        {
+          style: {
+            fontSize: 12,
+            color: tokens.textMuted,
+            marginBottom: tokens.space2,
+            lineHeight: 1.5,
+          },
+        },
+        format(t, "config.hintSummary"),
       ),
       createElement(
-        "p",
-        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
-        format(t, "config.hintSecrets"),
+        "details",
+        { style: { marginBottom: tokens.space3 } },
+        createElement(
+          "summary",
+          { style: { fontSize: 12, color: tokens.textMuted, cursor: "pointer" } },
+          format(t, "config.detailsTitle"),
+        ),
+        createElement(
+          "div",
+          {
+            style: {
+              display: "flex",
+              flexDirection: "column",
+              gap: tokens.space2,
+              paddingTop: tokens.space2,
+            },
+          },
+          ...(["config.hintWave1", "config.hintSecrets", "config.hintPrivacy"] as AmemKey[]).map(
+            (key) =>
+              createElement(
+                "p",
+                { key, style: { margin: 0, fontSize: 12, color: tokens.textMuted, lineHeight: 1.5 } },
+                format(t, key),
+              ),
+          ),
+          configState.path
+            ? createElement(
+                "p",
+                {
+                  style: {
+                    margin: 0,
+                    fontSize: 12,
+                    color: tokens.textMuted,
+                    lineHeight: 1.5,
+                    wordBreak: "break-all",
+                  },
+                },
+                format(t, "config.path", { path: configState.path }),
+              )
+            : null,
+        ),
       ),
-      createElement(
-        "p",
-        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
-        format(t, "config.hintPrivacy"),
-      ),
-      createElement(
-        "p",
-        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
-        format(t, "config.hintReload"),
-      ),
-      configState.path
-        ? createElement(
-            "p",
-            { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
-            format(t, "config.path", { path: configState.path }),
-          )
-        : null,
       createElement(
         "section",
         { style: styles.configSection },
         createElement("h3", { style: { margin: 0 } }, format(t, "config.section.llm")),
-        createElement(
-          "label",
-          { style: styles.configField },
-          createElement("span", { style: styles.configLabel }, format(t, "config.field.mode")),
-          createElement("span", { style: styles.configHelp }, format(t, "config.help.mode")),
+        field(
+          "amem-config-mode",
+          "config.field.mode",
           createElement(
             "select",
             {
+              id: "amem-config-mode",
+              "aria-describedby": "amem-config-mode-help",
               value: llm.mode,
               disabled: configBusy,
               onChange: (e: { target: { value: string } }) => setLlm({ mode: e.target.value }),
@@ -758,123 +895,187 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
             createElement("option", { value: "external" }, "external"),
             createElement("option", { value: "host" }, "host"),
           ),
+          { helpKey: "config.help.mode" },
         ),
-        createElement(
-          "label",
-          { style: styles.configField },
-          createElement("span", { style: styles.configLabel }, format(t, "config.field.base_url")),
-          createElement("span", { style: styles.configHelp }, format(t, "config.help.base_url")),
+        field(
+          "amem-config-base-url",
+          "config.field.base_url",
           createElement("input", {
+            id: "amem-config-base-url",
+            "aria-describedby": "amem-config-base-url-help",
             type: "text",
             value: llm.base_url,
             disabled: configBusy,
             onChange: (e: { target: { value: string } }) => setLlm({ base_url: e.target.value }),
             style: mergeStyle(styles.searchInput, { flex: "unset" }),
           }),
+          { helpKey: "config.help.base_url" },
         ),
-        createElement(
-          "label",
-          { style: styles.configField },
-          createElement("span", { style: styles.configLabel }, format(t, "config.field.model")),
-          createElement("span", { style: styles.configHelp }, format(t, "config.help.model")),
+        field(
+          "amem-config-model",
+          "config.field.model",
           createElement("input", {
+            id: "amem-config-model",
+            "aria-describedby": "amem-config-model-help",
             type: "text",
             value: llm.model,
             disabled: configBusy,
             onChange: (e: { target: { value: string } }) => setLlm({ model: e.target.value }),
             style: mergeStyle(styles.searchInput, { flex: "unset" }),
           }),
+          { helpKey: "config.help.model" },
         ),
-        createElement(
-          "label",
-          { style: styles.configField },
-          createElement("span", { style: styles.configLabel }, format(t, "config.field.api_key")),
-          createElement("span", { style: styles.configHelp }, format(t, "config.help.api_key")),
-          createElement(
-            "span",
-            { style: styles.configHelp },
-            format(t, llm.has_api_key ? "config.apiKeyPresent" : "config.apiKeyMissing"),
-          ),
+        field(
+          "amem-config-api-key",
+          "config.field.api_key",
           createElement("input", {
+            id: "amem-config-api-key",
+            "aria-describedby": "amem-config-api-key-help amem-config-key-source",
             type: "password",
             value: configState.apiKeyReplacement,
             placeholder: format(t, "config.apiKeyPlaceholder"),
+            autoComplete: "off",
             disabled: configBusy,
             onChange: (e: { target: { value: string } }) =>
               setConfigState((prev) => (prev ? { ...prev, apiKeyReplacement: e.target.value } : prev)),
             style: mergeStyle(styles.searchInput, { flex: "unset" }),
           }),
+          {
+            helpKey: "config.help.api_key",
+            extra: createElement(
+              "span",
+              { id: "amem-config-key-source", style: styles.configHelp },
+              format(t, keySourceKey, { name: llm.api_key_env || "—" }),
+            ),
+          },
+        ),
+        configState.apiKeyReplacement.trim() && llm.api_key_env.trim()
+          ? createElement(
+              "span",
+              { style: mergeStyle(styles.configHelp, { color: tokens.warning }) },
+              format(t, "config.warnKeyOverridesEnv", { name: llm.api_key_env }),
+            )
+          : null,
+        field(
+          "amem-config-api-key-env",
+          "config.field.api_key_env",
+          createElement("input", {
+            id: "amem-config-api-key-env",
+            "aria-describedby": "amem-config-api-key-env-help",
+            type: "text",
+            value: llm.api_key_env,
+            disabled: configBusy,
+            onChange: (e: { target: { value: string } }) => setLlm({ api_key_env: e.target.value }),
+            style: mergeStyle(styles.searchInput, { flex: "unset" }),
+          }),
+          { helpKey: "config.help.api_key_env" },
         ),
       ),
       createElement(
         "section",
         { style: styles.configSection },
-        createElement("h3", { style: { margin: 0 } }, format(t, "config.section.budget")),
+        createElement("h3", { style: { margin: 0 } }, format(t, "config.section.refine")),
         createElement(
-          "label",
+          "div",
           { style: styles.configField },
-          createElement("span", { style: styles.configLabel }, format(t, "config.field.refine_proposals")),
-          createElement("span", { style: styles.configHelp }, format(t, "config.help.refine_proposals")),
-          createElement("input", {
-            type: "checkbox",
-            checked: (() => {
-              const budget =
-                configState.config.budget != null &&
-                typeof configState.config.budget === "object" &&
-                !Array.isArray(configState.config.budget)
-                  ? (configState.config.budget as Record<string, unknown>)
-                  : {};
-              const consolidate =
-                budget.consolidate != null &&
-                typeof budget.consolidate === "object" &&
-                !Array.isArray(budget.consolidate)
-                  ? (budget.consolidate as Record<string, unknown>)
-                  : {};
-              return consolidate.refine_proposals === true;
-            })(),
-            disabled: configBusy,
-            onChange: (e: { target: { checked: boolean } }) => {
-              const checked = e.target.checked;
-              setConfigState((prev) => {
-                if (!prev) return prev;
-                const budget =
-                  prev.config.budget != null &&
-                  typeof prev.config.budget === "object" &&
-                  !Array.isArray(prev.config.budget)
-                    ? { ...(prev.config.budget as Record<string, unknown>) }
-                    : {};
-                const consolidate =
-                  budget.consolidate != null &&
-                  typeof budget.consolidate === "object" &&
-                  !Array.isArray(budget.consolidate)
-                    ? { ...(budget.consolidate as Record<string, unknown>) }
-                    : {};
-                return {
-                  ...prev,
-                  config: {
-                    ...prev.config,
-                    budget: { ...budget, consolidate: { ...consolidate, refine_proposals: checked } },
-                  },
-                };
-              });
-            },
-          }),
+          createElement(
+            "div",
+            { style: { display: "flex", alignItems: "center", gap: tokens.space2 } },
+            createElement("input", {
+              id: "amem-config-refine-proposals",
+              "aria-describedby": "amem-config-refine-help",
+              type: "checkbox",
+              checked: readRefineProposals(configState.config),
+              disabled: configBusy,
+              style: { margin: 0, flex: "0 0 auto" },
+              onChange: (e: { target: { checked: boolean } }) => {
+                const checked = e.target.checked;
+                setConfigState((prev) => {
+                  if (!prev) return prev;
+                  const budget =
+                    prev.config.budget != null &&
+                    typeof prev.config.budget === "object" &&
+                    !Array.isArray(prev.config.budget)
+                      ? { ...(prev.config.budget as Record<string, unknown>) }
+                      : {};
+                  const consolidate =
+                    budget.consolidate != null &&
+                    typeof budget.consolidate === "object" &&
+                    !Array.isArray(budget.consolidate)
+                      ? { ...(budget.consolidate as Record<string, unknown>) }
+                      : {};
+                  return {
+                    ...prev,
+                    config: {
+                      ...prev.config,
+                      budget: { ...budget, consolidate: { ...consolidate, refine_proposals: checked } },
+                    },
+                  };
+                });
+              },
+            }),
+            createElement(
+              "label",
+              { htmlFor: "amem-config-refine-proposals", style: styles.configLabel },
+              format(t, "config.field.refine_proposals"),
+            ),
+          ),
+          createElement(
+            "span",
+            { id: "amem-config-refine-help", style: styles.configHelp },
+            format(t, "config.help.refine_proposals"),
+          ),
         ),
       ),
-      configMsg ? createElement(StatusMessage, { t, kind: "success", message: configMsg }) : null,
+      configMsg
+        ? createElement(
+            "div",
+            { style: { display: "flex", flexDirection: "column", gap: tokens.space1 } },
+            createElement(StatusMessage, { t, kind: "success", message: configMsg }),
+            createElement(
+              "span",
+              { style: { fontSize: 12, color: tokens.textMuted } },
+              format(t, "config.hintReload"),
+            ),
+          )
+        : null,
       createElement(
         "div",
-        { style: { display: "flex", gap: tokens.space2, marginTop: tokens.space3 } },
+        {
+          style: {
+            display: "flex",
+            alignItems: "center",
+            gap: tokens.space2,
+            marginTop: tokens.space3,
+            flexWrap: "wrap",
+          },
+        },
         createElement(
           "button",
-          { type: "button", disabled: configBusy, onClick: () => void loadConfig(), style: styles.button },
+          { type: "button", disabled: configBusy, onClick: reloadConfig, style: styles.button },
           format(t, "config.reload"),
         ),
         createElement(
           "button",
-          { type: "button", disabled: configBusy, onClick: () => void saveConfig(), style: mergeStyle(styles.button, styles.primaryButton) },
+          {
+            type: "button",
+            disabled: configBusy || !dirty,
+            onClick: () => void saveConfig(),
+            style: mergeStyle(
+              styles.button,
+              styles.primaryButton,
+              configBusy || !dirty ? { opacity: 0.6, cursor: "not-allowed" } : undefined,
+            ),
+          },
           format(t, "config.save"),
         ),
+        dirty
+          ? createElement(
+              "span",
+              { style: { fontSize: 12, color: tokens.textMuted } },
+              format(t, "config.dirtyHint"),
+            )
+          : null,
       ),
     );
   };
@@ -943,13 +1144,13 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
         ),
       ),
       narrow
-        ? createElement(TopNav, { t, activeId: tab, onChange: (id) => setTab(id as Tab) })
+        ? createElement(TopNav, { t, activeId: tab, onChange: (id) => requestTab(id as Tab) })
         : null,
       createElement(
         "div",
         { style: styles.layout },
         !narrow
-          ? createElement(SideNav, { t, activeId: tab, onChange: (id) => setTab(id as Tab) })
+          ? createElement(SideNav, { t, activeId: tab, onChange: (id) => requestTab(id as Tab) })
           : null,
         createElement(
           "main",

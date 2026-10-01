@@ -66,39 +66,50 @@ export const zh = {
   "config.reload": "重新加载",
   "config.save": "保存",
   "config.confirmSave":
-    "确认写入 amem.toml？未在表单中展示的段（embedding/privacy）将保留磁盘原值。",
+    "确认写入 amem.toml？未在表单中展示的段与文件里的注释都会按磁盘原样保留。",
   "config.saved": "已保存：{path}",
   "config.loadFailed":
     "无法加载配置（{message}）。请执行 pnpm build && pnpm amem -- install --host dsh 后重启 dsh web。",
+  "config.hintSummary":
+    "这里编辑 LLM 连通字段。文件里的注释与未展示的段（privacy / embedding）保存时原样保留。",
+  "config.detailsTitle": "编辑说明与生效条件",
   "config.hintWave1":
-    "当前可编辑 LLM 连通字段（mode / base_url / model / API Key）。召回与其它调参将分批加入；embedding / privacy 仍请先手改 amem.toml。",
-  "config.apiKeyPresent": "磁盘上已保存密钥（不回显）。留空保存表示不修改。",
-  "config.apiKeyMissing": "磁盘上尚未保存密钥。",
+    "当前可编辑 LLM 连通字段（mode / base_url / model / API Key / API Key 环境变量名）；召回与其它调参将分批加入。",
   "config.hintSecrets":
-    "可将 API Key 直接填入下方「API Key」并保存到 amem.toml；也可留空改用环境变量名回退。",
+    "密钥有两种来源：直接填入「API Key」写入 amem.toml（优先使用），或留空并改用「API Key 环境变量名」指向的环境变量。",
   "config.hintReload":
     "保存后新请求会重新读盘；若长期 worker 已缓存配置，可能需重启 dsh web。",
   "config.hintPrivacy":
-    "privacy / embedding 请用手改 amem.toml；面板保存不会覆盖磁盘上的这些段。",
+    "privacy / embedding 请手改 amem.toml；面板保存不会覆盖磁盘上的这些段。",
   "config.path": "配置文件：{path}",
   "config.apiKeyPlaceholder": "留空表示不修改密钥",
+  "config.keySource.inline": "当前生效：amem.toml 里的内联密钥（优先于环境变量）。",
+  "config.keySource.env": "当前生效：环境变量 {name}（amem.toml 里没有内联密钥）。",
+  "config.keySource.none": "当前生效：没有可用密钥；external 模式下抽取会失败。",
+  "config.warnKeyOverridesEnv":
+    "注意：内联密钥优先于环境变量，保存后 {name} 回退不再生效；要恢复回退需手改 amem.toml 清空 api_key。",
+  "config.dirtyHint": "有未保存的修改",
+  "config.confirmDiscard": "有未保存的修改，离开会丢弃它们。继续？",
   "config.section.identity": "身份",
   "config.section.llm": "LLM",
   "config.section.recall": "召回",
   "config.section.promotion": "晋升",
-  "config.section.budget": "整合预算",
+  "config.section.refine": "整合时的 LLM 精炼",
   "config.field.user_id": "用户 ID",
   "config.help.user_id": "记忆归属的用户标识（identity.user_id）。",
   "config.field.mode": "LLM 模式",
-  "config.help.mode": "stub=本地桩；external=调用 base_url；host=由宿主提供。",
+  "config.help.mode":
+    "stub=本地桩；external=调用 base_url；host=由宿主提供（当前尚未接入，行为等同 stub）。",
   "config.field.base_url": "API Base URL",
   "config.help.base_url": "external 模式下的 OpenAI 兼容接口根地址；可留空。",
   "config.field.model": "模型名",
   "config.help.model": "发给上游的 model 字段，例如 openai/gpt-4.1-mini。",
   "config.field.api_key": "API Key",
-  "config.help.api_key": "直接写入 amem.toml 的密钥（优先使用）。可留空则回退到下方环境变量。",
+  "config.help.api_key":
+    "写入 amem.toml 的密钥（优先于环境变量回退）。留空保存表示不修改磁盘上的值。",
   "config.field.api_key_env": "API Key 环境变量名（可选回退）",
-  "config.help.api_key_env": "当 api_key 为空时，从该环境变量读取密钥。",
+  "config.help.api_key_env":
+    "当「API Key」留空时，从此环境变量读取密钥；只填变量名，不要粘贴密钥本身。",
   "config.field.budget_tokens": "召回 token 预算",
   "config.help.budget_tokens": "单次 context pack 大约可用的 token 上限。",
   "config.field.l0_items": "L0 条数",
@@ -245,41 +256,50 @@ export const en: Record<AmemKey, string> = {
   "config.reload": "Reload",
   "config.save": "Save",
   "config.confirmSave":
-    "Confirm writing amem.toml? Sections not shown in the form (embedding/privacy) keep their on-disk values.",
+    "Confirm writing amem.toml? Sections not shown in the form and comments in the file keep their on-disk content.",
   "config.saved": "Saved: {path}",
   "config.loadFailed":
     "Failed to load config ({message}). Run pnpm build && pnpm amem -- install --host dsh, then restart dsh web.",
+  "config.hintSummary":
+    "Edit LLM connectivity fields here. Comments in the file and sections not shown here (privacy / embedding) are preserved on save.",
+  "config.detailsTitle": "Editing notes and when changes apply",
   "config.hintWave1":
-    "You can edit LLM connectivity fields now (mode / base_url / model / API Key). Recall and other tunables come in later waves; edit embedding / privacy in amem.toml for now.",
-  "config.apiKeyPresent": "A key is already stored on disk (never shown). Leave blank on save to keep it.",
-  "config.apiKeyMissing": "No key is stored on disk yet.",
+    "Editable now: LLM connectivity fields (mode / base_url / model / API Key / API key env var). Recall and other tunables arrive in later waves.",
   "config.hintSecrets":
-    "You can paste the API Key into the field below and save it in amem.toml, or leave it empty and use the env var fallback.",
+    "A key has two sources: paste it into API Key to store it in amem.toml (preferred), or leave it empty and point the API key env var at an environment variable.",
   "config.hintReload":
     "New requests re-read disk after save; long-lived workers that cached config may need a dsh web restart.",
   "config.hintPrivacy":
     "Edit privacy / embedding manually in amem.toml; panel saves do not overwrite those on-disk sections.",
   "config.path": "Config file: {path}",
   "config.apiKeyPlaceholder": "Leave blank to keep current key",
+  "config.keySource.inline": "In effect: inline key from amem.toml (takes precedence over the env var).",
+  "config.keySource.env": "In effect: environment variable {name} (no inline key in amem.toml).",
+  "config.keySource.none": "In effect: no usable key; extraction fails in external mode.",
+  "config.warnKeyOverridesEnv":
+    "Note: an inline key takes precedence, so the {name} fallback stops applying once you save one. Clear api_key in amem.toml by hand to restore the fallback.",
+  "config.dirtyHint": "Unsaved changes",
+  "config.confirmDiscard": "You have unsaved changes; leaving discards them. Continue?",
   "config.section.identity": "Identity",
   "config.section.llm": "LLM",
   "config.section.recall": "Recall",
   "config.section.promotion": "Promotion",
-  "config.section.budget": "Consolidate budget",
+  "config.section.refine": "LLM refinement during consolidate",
   "config.field.user_id": "User ID",
   "config.help.user_id": "User identity for memory ownership (identity.user_id).",
   "config.field.mode": "LLM mode",
-  "config.help.mode": "stub=local stub; external=call base_url; host=provided by host.",
+  "config.help.mode":
+    "stub=local stub; external=call base_url; host=provided by host (not wired up yet; behaves like stub).",
   "config.field.base_url": "API base URL",
   "config.help.base_url": "OpenAI-compatible API root for external mode; may be empty.",
   "config.field.model": "Model",
   "config.help.model": "Upstream model id, e.g. openai/gpt-4.1-mini.",
   "config.field.api_key": "API Key",
   "config.help.api_key":
-    "Secret written into amem.toml (preferred). Leave empty to fall back to the env var below.",
+    "Key written into amem.toml (takes precedence over the env var fallback). Leave blank to keep the on-disk value.",
   "config.field.api_key_env": "API key env var (optional fallback)",
   "config.help.api_key_env":
-    "When api_key is empty, read the key from this environment variable.",
+    "When API Key is empty, read the key from this environment variable; put the variable name only, never the key itself.",
   "config.field.budget_tokens": "Recall token budget",
   "config.help.budget_tokens": "Approx. token budget for one context pack.",
   "config.field.l0_items": "L0 item count",

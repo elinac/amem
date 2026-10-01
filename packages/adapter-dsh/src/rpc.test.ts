@@ -236,9 +236,12 @@ describe("rpc registry", () => {
     );
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const cfg = r.result as { config: { llm: { api_key?: string; has_api_key: boolean } } };
+    const cfg = r.result as {
+      config: { llm: { api_key?: string; has_api_key: boolean; api_key_source: string } };
+    };
     expect(cfg.config.llm.api_key).toBeUndefined();
     expect(typeof cfg.config.llm.has_api_key).toBe("boolean");
+    expect(["inline", "env", "none"]).toContain(cfg.config.llm.api_key_source);
   });
 
   it("maps admin not_found without stack leak", async () => {

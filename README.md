@@ -200,11 +200,14 @@ pnpm amem -- install --host cursor
 | 段 | 字段 | 说明 |
 |----|------|------|
 | `[identity]` | `user_id` | 本机用户标识 |
-| `[llm]` | `mode` | `stub` / `external` / `host` |
-| | `base_url` / `model` / `api_key_env` | 默认 OpenRouter；密钥环境变量名默认 `AMEM_LLM_KEY` |
+| `[llm]` | `mode` | `stub` / `external` / `host`（`host` 尚未接入，行为等同 `stub`） |
+| | `base_url` / `model` | 默认 OpenRouter；`external` 模式下调用该网关 |
+| | `api_key` / `api_key_env` | 内联密钥（优先）或环境变量名（默认 `AMEM_LLM_KEY`）；留空 `api_key` 时回退到环境变量 |
 | `[recall]` | `budget_tokens` / `l0_items` / `l1_items` | 上下文装配预算 |
 | `[promotion]` | 各 `*_min_*` / `global_min_lift` | 晋升门槛 |
-| `[budget.consolidate]` | `max_llm_calls` 等 | 整合流水线预算 |
+| `[budget.consolidate]` | `max_llm_calls` 等 / `refine_proposals` | 整合流水线预算；`refine_proposals` 控制整合时是否用外部模型精炼提案正文 |
+
+> DSH Web 面板的「配置」Tab 可在界面内编辑上述 `[llm]` 字段与 `refine_proposals`；**手写注释、未知键与未展示的段（`[privacy]` / `[embedding]`）在保存时按磁盘原样保留**，不会因面板保存而丢失。
 
 启用真实抽取示例：
 
@@ -520,7 +523,7 @@ dsh web --patch "%USERPROFILE%\.amem\hosts\dsh\amem.cordis.yml"
 
 - Cordis 插件监听 `session/event` 写入 `~/.amem/spool`（fail-open）。
 - Host 注册同域 `/amem-api`；管理面板默认关闭 auth，仍保留来源校验。设置 `[dsh.admin].auth_enabled = true` 后使用独立能力令牌 + HttpOnly 短会话 + CSRF，不依赖 Connection `requestRejection`/`admit`。
-- 左栏 **amem** 面板：记忆 / 能力 / 提案 / 运维 / 配置 / 说明（包 `@amem/amem-dsh-ui`）；**运维** Tab 对应 RPC：`ops.doctor`、`ops.flush`、`ops.rebuild`、`ops.consolidate`、`ops.compile`（面板内固定 target 为 dsh，不可改）；**配置** Tab 调用 `config.get` / `config.put`，永不展示真实 API Key 原值。
+- 左栏 **amem** 面板：记忆 / 能力 / 提案 / 审阅 / 运维 / 配置 / 说明（包 `@amem/amem-dsh-ui`）；**运维** Tab 对应 RPC：`ops.doctor`、`ops.flush`、`ops.rebuild`、`ops.consolidate`、`ops.compile`（面板内固定 target 为 dsh，不可改）；**配置** Tab 调用 `config.get` / `config.put`，可编辑 `[llm]` 连通字段（含写入真实 API Key 与环境变量名）与 `refine_proposals`，**永不回显**已存密钥（只显示来源：内联 / 环境变量 / 未配置），未展示的段与文件注释保持磁盘原值。
 - headless / ACP 无面板，仍可用 MCP。
 
 #### DSH 管理面板认证（可选）
@@ -548,7 +551,7 @@ amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read
 | `proposal:read` | 查看晋升提案 |
 | `proposal:apply` | 将提案物化为能力 |
 | `ops:doctor/flush/rebuild/consolidate/compile` | 运维操作 |
-| `config:read` | 读取配置（不含 API Key） |
+| `config:read` | 读取配置（密钥只回来源与是否存在，不含密钥原值） |
 | `config:write` | 修改配置 |
 
 启动面板：

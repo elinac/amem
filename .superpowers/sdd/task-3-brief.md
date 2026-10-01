@@ -1,46 +1,58 @@
-### Task 3: Routes GET/PUT `/amem-api/config`
+﻿# Task 3 Brief — 短浏览器会话、CSRF 与 Origin guard
+
+Work from: d:\dev\workspaces\amem
+Branch: feat/dsh-auth-rpc-workbench
+
+## Dependencies ready
+- DshTokenStore with verify/revoke/issue
+- AmemConfig.dsh.admin: allowed_origins, session_ttl_minutes, auth_failure_limit
+
+## Global Constraints
+- No connection.requestRejection/admit
+- Bearer never in URL/logs/toml/localStorage
+- Auth failures return uniform unauthenticated (no token oracle)
+- Do not touch ocr-review.md
+
+## Task 3
 
 **Files:**
-- Modify: `packages/adapter-dsh/src/plugin.ts`（在 `/compile` 路由之后、`404` 之前）
+- Create: packages/adapter-dsh/src/browser-session.ts
+- Create: packages/adapter-dsh/src/browser-session.test.ts
 
-**Interfaces:**
-- Consumes: `admin.getConfig()`, `admin.putConfig(body)`
-- Produces: HTTP handlers same style as `/doctor`
-
-- [ ] **Step 1: Add routes**
+**Interface:**
 
 ```ts
-if (method === "GET" && path === "/config") {
-  const r = admin.getConfig();
-  sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-  return;
-}
-
-if (method === "PUT" && path === "/config") {
-  let body: unknown;
-  try {
-    body = JSON.parse((await readBody(req)) || "{}");
-  } catch {
-    sendJson(res, 400, { error: "bad_request", message: "invalid JSON" });
-    return;
-  }
-  const r = admin.putConfig(body);
-  sendJson(res, r.ok ? 200 : r.status, r.ok ? r.data : r);
-  return;
+class BrowserSessionManager {
+  login(input: LoginInput): LoginResult;
+  issueCsrf(cookie: string, requestMeta: RequestMeta): CsrfResult;
+  authenticate(cookie: string, csrf: string | undefined, required: DshAdminScope[], meta: RequestMeta): AuthResult;
+  logout(cookie: string): void;
+  revokeToken(tokenId: string): void;
 }
 ```
 
-- [ ] **Step 2: Typecheck / build adapter**
+Tests required:
+1. exchanges a bearer for an HttpOnly Strict cookie and csrf token
+2. caps session expiry by token expiry and configured ttl
+3. rejects origin, host and sec-fetch-site mismatches
+4. requires csrf for mutating RPC but not read RPC
+5. invalidates sessions after token revocation
+6. rate-limits repeated failed login attempts without token oracle
 
-Run: `cd packages/adapter-dsh && pnpm build`  
-Expected: exit 0
+Implementation:
+- session id and CSRF: 32-byte CSPRNG; server stores hashes only
+- cookie name: amem_dsh_session
+- attributes: HttpOnly; SameSite=Strict; Path=/amem-api; Max-Age=<ttl>
+- Secure only when origin scheme is HTTPS
+- remote non-HTTPS origins rejected at config validation stage (already have isValidAllowedOrigin; enforce https for non-loopback if needed in this module)
+- Consumes DshTokenStore.verify()
+- Constructor should take home + admin config (allowed_origins, session_ttl_minutes, auth_failure_limit) + token store
 
-- [ ] **Step 3: Commit**（仅当用户要求时）
+Also export from index.ts if needed for later tasks — optional for this commit; plan only lists the two new files for commit. Stick to plan commit files:
+git add packages/adapter-dsh/src/browser-session.ts packages/adapter-dsh/src/browser-session.test.ts
+git commit --trailer "Co-authored-by: Cursor <cursoragent@cursor.com>" -m \"feat(dsh): add browser admin sessions\"
 
-```bash
-git add packages/adapter-dsh/src/plugin.ts
-git commit -m "feat(adapter-dsh): expose GET/PUT /amem-api/config"
-```
+Design reference: docs/superpowers/specs/2026-10-01-recall-governance-and-dsh-workbench-design.md section 6
+Plan: docs/superpowers/plans/2026-10-01-dsh-auth-rpc-workbench.md Task 3
 
----
-
+Report: .superpowers/sdd/task-3-report.md

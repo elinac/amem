@@ -3,6 +3,7 @@ import {
   amemHome as defaultAmemHome,
   extractEditableConfigPatch,
   isSafeId,
+  llmApiKeySource,
   loadConfig,
   mergeConfigOverlay,
   newId,
@@ -388,7 +389,12 @@ export function createAdmin(home = defaultAmemHome()) {
       const { api_key: _apiKey, ...llmRest } = raw.llm;
       const safeConfig = {
         ...raw,
-        llm: { ...llmRest, has_api_key: !!resolveLlmApiKey(raw) },
+        llm: {
+          ...llmRest,
+          has_api_key: !!resolveLlmApiKey(raw),
+          // Where the effective key comes from; never the key itself.
+          api_key_source: llmApiKeySource(raw),
+        },
       };
       return {
         ok: true,

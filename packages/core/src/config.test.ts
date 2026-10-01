@@ -8,11 +8,14 @@ import {
   defaultConfig,
   escapeTomlString,
   extractEditableConfigPatch,
+  llmApiKeySource,
   loadConfig,
+  looksLikeSecretValue,
   mergeConfigOverlay,
   parseSimpleToml,
   preservePrivacyTomlSection,
   resolveLlmApiKey,
+  updateTomlText,
   validateEditableConfigPatch,
   writeAmemConfigFile,
 } from "./config.js";
@@ -102,6 +105,28 @@ describe("validate + merge overlay", () => {
     expect(r.ok).toBe(true);
   });
 
+  it("rejects api_key_env that looks like a secret", () => {
+    const r = validateEditableConfigPatch({
+      llm: { api_key_env: "sk-abcdefghijklmnopqrstuvwxyz012345" },
+    });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.message).toContain("environment variable name");
+  });
+
+  it("accepts conventional env var names, including long ones", () => {
+    for (const name of ["AMEM_LLM_KEY", "OPENAI_API_KEY_FOR_TEAM_SHARED_ACCOUNT", ""]) {
+      expect(validateEditableConfigPatch({ llm: { api_key_env: name } }).ok).toBe(true);
+    }
+  });
+
+  it("flags mixed-case token shapes as secret-like", () => {
+    expect(looksLikeSecretValue("AMEM_LLM_KEY")).toBe(false);
+    expect(looksLikeSecretValue("sk-proj-abcdefghijklmnop")).toBe(true);
+    expect(looksLikeSecretValue("AbCdEf0123456789AbCdEf0123456789AbCdEf01")).toBe(true);
+    expect(looksLikeSecretValue("")).toBe(false);
+  });
+
   it("rejects string injection chars", () => {
     const r = validateEditableConfigPatch({
       identity: { user_id: 'evil"inject' },
@@ -158,6 +183,100 @@ describe("resolveLlmApiKey", () => {
     process.env.AMEM_LLM_KEY = "sk-env";
     expect(resolveLlmApiKey(cfg)).toBe("sk-inline");
     delete process.env.AMEM_LLM_KEY;
+  });
+});
+
+describe("llmApiKeySource", () => {
+  afterEach(() => {
+    delete process.env.AMEM_LLM_KEY;
+    delete process.env.AMEM_TEST_ABSENT_KEY;
+  });
+
+  it("reports inline when a key is written in amem.toml", () => {
+    const cfg = defaultConfig();
+    cfg.llm.api_key = "sk-inline";
+    process.env.AMEM_LLM_KEY = "sk-env";
+    expect(llmApiKeySource(cfg)).toBe("inline");
+  });
+
+  it("reports env when only the environment variable is set", () => {
+    const cfg = defaultConfig();
+    cfg.llm.api_key_env = "AMEM_TEST_ABSENT_KEY";
+    expect(llmApiKeySource(cfg)).toBe("none");
+    process.env.AMEM_TEST_ABSENT_KEY = "sk-from-env";
+    expect(llmApiKeySource(cfg)).toBe("env");
+  });
+
+  it("reports none when neither source is available", () => {
+    expect(llmApiKeySource(defaultConfig())).toBe("none");
+  });
+});
+
+describe("updateTomlText", () => {
+  it("keeps comments and unknown keys while updating managed values", () => {
+    const disk = `# my own note about amem
+[llm]
+mode = "stub" # keep this comment
+some_future_key = 1
+
+[privacy]
+redact_patterns = ["KEEP"]
+exclude_workspaces = []
+`;
+    const cfg = defaultConfig();
+    cfg.llm.mode = "external";
+    const out = updateTomlText(disk, cfg);
+    expect(out).toContain("# my own note about amem");
+    expect(out).toContain('mode = "external" # keep this comment');
+    expect(out).toContain("some_future_key = 1");
+    expect(out).toContain('redact_patterns = ["KEEP"]');
+  });
+
+  it("fills missing keys into an existing section without duplicating its header", () => {
+    const out = updateTomlText(`[llm]\nmodel = "stale"\n`, defaultConfig());
+    expect(out.match(/^\[llm\]$/gm)).toHaveLength(1);
+    // Managed keys always take the new config value; the section header stays single.
+    expect(out).toContain('model = "openai/gpt-4.1-mini"');
+    expect(out).not.toContain('"stale"');
+    expect(out).toContain('base_url = "https://openrouter.ai/api/v1"');
+    expect(out).toContain('api_key_env = "AMEM_LLM_KEY"');
+    expect(out).toContain("[recall]");
+  });
+
+  it("generates a full document when the disk file is empty", () => {
+    expect(updateTomlText("", defaultConfig())).toBe(configToToml(defaultConfig()));
+  });
+
+  it("preserves CRLF line endings", () => {
+    const cfg = defaultConfig();
+    cfg.llm.mode = "external";
+    const out = updateTomlText(`[llm]\r\nmode = "stub"\r\n`, cfg);
+    expect(out).toContain('mode = "external"');
+    expect(out).toContain("[recall]");
+    expect(out).not.toMatch(/[^\r]\n/);
+  });
+});
+
+describe("parseSimpleToml comments", () => {
+  it("ignores inline comments outside quotes but keeps # inside values", () => {
+    const parsed = parseSimpleToml(
+      `[llm]
+model = "openai/gpt-4.1-mini" # my note
+base_url = "http://gateway.local/#frag"
+mode = "external" # trailing
+[recall]
+budget_tokens = 900 # tokens
+`,
+    );
+    expect(parsed.llm.model).toBe("openai/gpt-4.1-mini");
+    expect(parsed.llm.base_url).toBe("http://gateway.local/#frag");
+    expect(parsed.llm.mode).toBe("external");
+    expect(parsed.recall.budget_tokens).toBe(900);
+  });
+
+  it("reads a section header that carries a trailing comment", () => {
+    const parsed = parseSimpleToml(`[llm] # connectivity\nmode = "host"\n`);
+    expect(parsed.llm.mode).toBe("host");
   });
 });
 
@@ -243,5 +362,27 @@ exclude_workspaces = ["/ws"]
     expect(text).toContain('redact_patterns = ["TOKEN"]');
     expect(text).toContain('exclude_workspaces = ["/ws"]');
     expect(text).toContain('mode = "host"');
+  });
+
+  it("preserves hand-written comments and unknown keys after save", () => {
+    home = mkdtempSync(join(tmpdir(), "amem-cfg-"));
+    mkdirSync(home, { recursive: true });
+    const initial = configToToml(defaultConfig())
+      .replace("# amem config", "# amem config\n# 本机说明：base_url 指向公司网关")
+      .replace(
+        'base_url = "https://openrouter.ai/api/v1"',
+        'base_url = "https://openrouter.ai/api/v1" # 备注\ncustom_note_key = "keep"',
+      );
+    writeFileSync(join(home, "amem.toml"), initial);
+    const cfg = loadConfig(home);
+    cfg.budget.consolidate.refine_proposals = true;
+    cfg.llm.model = "openai/gpt-4.1";
+    writeAmemConfigFile(home, cfg);
+    const text = readFileSync(join(home, "amem.toml"), "utf8");
+    expect(text).toContain("# 本机说明：base_url 指向公司网关");
+    expect(text).toContain("# 备注");
+    expect(text).toContain('custom_note_key = "keep"');
+    expect(text).toContain('model = "openai/gpt-4.1"');
+    expect(text).toContain("refine_proposals = true");
   });
 });

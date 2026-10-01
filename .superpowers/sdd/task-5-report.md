@@ -1,41 +1,47 @@
-# Task 5 Report: README + reinstall hint
+# Task 5 报告：替换 DSH HTTP 路由
 
-**Status:** Done  
-**Date:** 2026-09-27
+**状态：** 完成  
+**日期：** 2026-10-01
 
-## Changes
+## 变更文件
 
-**File:** `README.md`（「DSH Web 扩展（仅 `dsh web`）」小节）
+- `packages/adapter-dsh/src/plugin.ts`
+- `packages/adapter-dsh/src/plugin.test.ts`
+- `packages/cli/src/bin.ts`
 
-- 左栏 amem 面板描述由三个 Tab 更新为五个：**记忆 / 能力 / 提案 / 运维 / 说明**。
-- 补充 **运维** Tab 与 Admin API 的对应关系：`doctor`、`flush`、`rebuild-index`、`consolidate`、`compile --target dsh`；并注明面板内 compile 固定为 dsh。
+## 实现摘要
 
-## Verification
+1. 移除 `Connection` duck typing、`requestRejection`/`admit` 探针与全部旧版 REST 路由。
+2. `inject` 仅保留 `["webServer"]`。
+3. `/amem-api` 下只暴露四个路由：
+   - `POST /auth/session` — bearer 换 HttpOnly 短会话 cookie + CSRF token
+   - `POST /auth/csrf` — 用有效会话换取新 CSRF token
+   - `DELETE /auth/session` — 注销会话
+   - `POST /rpc` — 固定 RPC 注册表统一入口
+4. 请求体 `readBody` 在累计超过 64 KiB 时返回 `invalid_argument`。
+5. Cookie 解析只识别精确名称 `amem_dsh_session`。
+6. 认证端点与 RPC 响应均带 `Cache-Control: no-store`；所有响应带 `X-Content-Type-Options: nosniff`。
+7. 使用 `cfg.dsh.admin` 的 `allowed_origins`、`session_ttl_minutes`、`auth_failure_limit`。
+8. `installDsh` wrapper 改为 `export const inject = mod.inject ?? ["webServer"]`，并在安装结果中加入 token 签发提示：
+   `amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read`
+
+## 验证
 
 ```text
-pnpm --filter @amem/adapter-dsh build
-→ tsc -p tsconfig.json
-Exit code: 0
+pnpm --filter @amem/adapter-dsh test
+→ 8 files, 65 tests passed
 
-pnpm --filter @amem/amem-dsh-ui build
-→ dist/client.bundle.cjs + dist/client.js (lazy-CJS)
-Exit code: 0
+pnpm --filter @amem/cli test
+→ 1 file, 3 tests passed
+
+pnpm --filter @amem/adapter-dsh build
+→ tsc -p tsconfig.json, exit 0
+
+pnpm --filter @amem/cli build
+→ tsc -p tsconfig.json, exit 0
 ```
 
-## Manual smoke（未在本任务启动 `dsh web`）
+## 未做/注意
 
-实现者或验收时请：
-
-1. 若 Cordis wrapper 未变，可不重装；`@amem/adapter-dsh` / `@amem/amem-dsh-ui` 的 `dist` 经 file URL 引用时，**重启 `dsh web`** 即可加载新 bundle。
-2. 重启后：运维 → 健康检查应返回 JSON；切到 **说明** 不应请求 `/proposals`；locale 中英切换时 Tab 与说明文案应变化。
-
-## Not done
-
-- Git commit（per instructions）。
-- 未启动 `dsh web` 做浏览器冒烟（见上）。
-
-## Spec coverage (Task 5)
-
-| 项 | 状态 |
-|----|------|
-| README 五 Tab + 运维 API 说明 | ✓ |
+- 未启动 `dsh web` 做浏览器冒烟；本任务为后端路由层替换。
+- 未修改 `ocr-review.md`。
