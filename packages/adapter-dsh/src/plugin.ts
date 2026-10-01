@@ -257,7 +257,8 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
             let body: unknown;
             try {
               body = JSON.parse(await readBody(req));
-            } catch {
+            } catch (e) {
+              if (e instanceof BodyTooLargeError) throw e;
               sendJson(res, 400, { error: "invalid_argument", message: "invalid JSON" });
               return;
             }
@@ -319,9 +320,46 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           }
 
           if (method === "DELETE" && path === "/auth/session") {
+            if (!cfg.allowed_origins.includes(meta.origin)) {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
+            try {
+              if (new URL(meta.origin).host !== meta.host) {
+                sendJson(
+                  res,
+                  401,
+                  { error: "unauthenticated", message: "unauthenticated" },
+                  { "cache-control": "no-store" },
+                );
+                return;
+              }
+            } catch {
+              sendJson(
+                res,
+                401,
+                { error: "unauthenticated", message: "unauthenticated" },
+                { "cache-control": "no-store" },
+              );
+              return;
+            }
             const cookie = parseCookie(req.headers.cookie);
             sessions.logout(cookie);
-            sendJson(res, 200, { ok: true }, { "cache-control": "no-store" });
+            sendJson(
+              res,
+              200,
+              { ok: true },
+              {
+                "cache-control": "no-store",
+                "set-cookie":
+                  "amem_dsh_session=; HttpOnly; SameSite=Strict; Path=/amem-api; Max-Age=0",
+              },
+            );
             return;
           }
 
@@ -329,7 +367,8 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
             let envelope: unknown;
             try {
               envelope = JSON.parse(await readBody(req));
-            } catch {
+            } catch (e) {
+              if (e instanceof BodyTooLargeError) throw e;
               sendJson(res, 400, { error: "invalid_argument", message: "invalid JSON" });
               return;
             }
@@ -352,7 +391,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           }
           sendJson(res, 500, {
             error: "internal",
-            message: e instanceof Error ? e.message : String(e),
+            message: "internal error",
           });
         }
       },
