@@ -122,6 +122,11 @@ export class BrowserSessionManager {
     if (!session) {
       return { ok: false, error: "unauthenticated" };
     }
+    if (this.revokedTokenIds.has(session.tokenId) || this.isTokenInactive(session.tokenId)) {
+      const raw = this.parseCookie(cookie);
+      if (raw) this.sessions.delete(sha256(raw).toString("base64url"));
+      return { ok: false, error: "unauthenticated" };
+    }
     const csrf = randomToken();
     session.csrfHash = sha256(csrf);
     return { ok: true, csrfToken: csrf, expiresAt: new Date(session.expiresAt).toISOString() };
@@ -148,7 +153,9 @@ export class BrowserSessionManager {
         return { ok: false, error: "unauthenticated" };
       }
     }
-    if (this.revokedTokenIds.has(session.tokenId)) {
+    if (this.revokedTokenIds.has(session.tokenId) || this.isTokenInactive(session.tokenId)) {
+      const raw = this.parseCookie(cookie);
+      if (raw) this.sessions.delete(sha256(raw).toString("base64url"));
       return { ok: false, error: "unauthenticated" };
     }
     for (const scope of required) {
@@ -166,12 +173,20 @@ export class BrowserSessionManager {
   }
 
   revokeToken(tokenId: string): void {
+    this.store.revoke(tokenId);
     this.revokedTokenIds.add(tokenId);
     for (const [key, session] of this.sessions) {
       if (session.tokenId === tokenId) {
         this.sessions.delete(key);
       }
     }
+  }
+
+  private isTokenInactive(tokenId: string): boolean {
+    const record = this.store.list().find((r) => r.id === tokenId);
+    if (!record) return true;
+    if (record.revokedAt) return true;
+    return new Date(record.expiresAt).getTime() <= Date.now();
   }
 
   private createSession(verified: VerifiedToken, origin: string, tokenExpiry: number): LoginResult {

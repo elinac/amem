@@ -209,6 +209,19 @@ describe("BrowserSessionManager", () => {
     expect(freshCsrf.ok).toBe(false);
   });
 
+  it("invalidates sessions after store-level token revoke", () => {
+    const { store, manager } = setup();
+    const { token, record } = store.issue(["memory:read"], 60 * 60 * 1000);
+    const login = manager.login({ bearer: token, ...loginMeta() });
+    expect(login.ok).toBe(true);
+    if (!login.ok) return;
+    const cookie = cookieValue(login.cookie);
+
+    expect(store.revoke(record.id)).toBe(true);
+    expect(manager.authenticate(cookie, undefined, ["memory:read"], loginMeta()).ok).toBe(false);
+    expect(manager.issueCsrf(cookie, loginMeta()).ok).toBe(false);
+  });
+
   it("logs out sessions", () => {
     const { store, manager } = setup();
     const { token } = store.issue(["memory:read"], 60 * 60 * 1000);
