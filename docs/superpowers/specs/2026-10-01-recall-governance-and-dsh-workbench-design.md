@@ -1,7 +1,7 @@
 # amem 召回治理与 DSH 记忆工作台
 
 日期：2026-10-01  
-状态：已确认，待实施计划  
+状态：已确认，审核修订完成；独立认证/RPC 已纳入 P0
 范围：L2 召回门控、任务情境 epoch 的固定快照、冲突人工裁决，以及 DSH Web 面板的列表、审阅与视觉重构。
 
 ## 1. 目标
@@ -11,14 +11,14 @@ amem 已具备证据约束、信任等级、分层存储与 L3 人工晋升；�
 1. 将“检索”与“注入”分开，每条候选先得到可审计的使用决定。
 2. 在同一任务情境 epoch 内固定首次自动装配的记忆，保持 prompt 前缀稳定而不妨碍长会话切换任务。
 3. 冲突记忆不再自动注入；用户可在 DSH 面板中对比、裁决和追溯。
-4. 将当前简陋的六 Tab 列表升级为紧凑 DSH 原生工作台；筛选、分页和在线审阅仅在 HTTP/RPC 安全发布门满足后交付。
+4. 将当前简陋的六 Tab 列表升级为紧凑 DSH 原生工作台；P0 自建独立认证/RPC，交付可用的筛选、分页、配置、运维与在线冲突审阅。
 
 ## 2. 非目标
 
 - 不实现图数据库、实体关系检索或新的 embedding 后端。
 - 不把 workspace 变成记忆的主分区键；情境召回仍是核心。
 - 不自动写入 L3，不放宽现有人工合并门槛。
-- 不使用 DSH 私有事件、DOM 注入或浏览器 hack 自动写 system prompt。
+- 不依赖 DSH 私有鉴权接口、私有事件、DOM 注入或浏览器 hack。
 - 不实现跨宿主历史导入、负知识账本、自动 handoff、自动健康降级、下一 epoch 预测或快照差异视图；它们是后续独立范围。
 - 不引入 UI 组件库、CSS 框架或外部运行时依赖。
 
@@ -101,7 +101,7 @@ Context Pack 使用唯一的版本化编码：固定的系统说明、带 ID/信
 | 保留 B | A 设为 `superseded`，其 `supersedes` 指向 B；双方清除彼此冲突关联。B 只有在没有其它 `conflicts_with` 边时才设为 `active`，否则保持 `conflict`。 |
 | 并存 | 不清除双方冲突关联，二者保持 `conflict`；审计记录为“人工并存，自动注入继续禁用”。这种动作只确认保留历史，不解除门控。 |
 
-裁决是宿主无关的 core/CLI/MCP 契约；DSH 审阅页仅在 HTTP 发布门满足后提供图形入口。裁决记录写入 manifest/audit，包含不可由调用参数伪造的 `ActorContext`、输入 id、动作、双方更新前的 `updated_at` 和结果。记忆 Markdown 仍是状态和关系的唯一真实来源。
+裁决是宿主无关的 core 契约；P0 由本地 CLI 与已认证 DSH RPC 暴露，通用 stdio MCP 不暴露裁决。DSH 审阅页通过 P0 独立认证/RPC 提供图形入口。裁决记录写入 manifest/audit，包含不可由调用参数伪造的 `ActorContext`、输入 id、动作、双方更新前的 `updated_at` 和结果。记忆 Markdown 仍是状态和关系的唯一真实来源。
 
 核心变更 API 必须接收由私有 `ActorAuthority` 签发、不可从调用参数构造的 `ActorContext`，并要求相应权限。首期运行在单用户本地信任边界：CLI 和 stdio MCP 均代表启动它们的 OS 用户，依赖该用户对 amem 根目录的已有 OS 权限；POSIX 使用 0700/0600，Windows 记录“由目录 ACL 管理”而不宣称 Node 能验证或设置 ACL。
 
@@ -133,9 +133,9 @@ Context Pack 使用唯一的版本化编码：固定的系统说明、带 ID/信
 
 未知记忆返回 not found；两个记忆不构成当前冲突对、非法动作或非法 RFC 3339 时间戳返回 invalid argument；版本冲突返回 conflict。ID 必须通过 `isSafeId`，查询文本、请求体和审计字段有长度上限，且 ID 只能交给 `MemoryStore` 查找，不能用于路径拼接。
 
-只有满足第 6 节 HTTP 信任边界后，才将同一契约投影为 `/amem-api/review` 和 `POST /amem-api/conflicts/:leftId/resolve`。届时变更请求必须有独立认证、Origin / `Sec-Fetch-Site` 校验和 CSRF 防护；actor 一律由认证上下文生成，不接受请求体提供的身份。
+DSH 面板通过第 6 节的 `conflict.list/get/resolve` RPC 使用同一契约。actor 一律由短会话绑定的长期 token id 和 scope 生成，不接受 RPC 参数提供身份。
 
-## 6. DSH 集成与 HTTP 信任边界
+## 6. DSH 集成与独立认证/RPC（P0）
 
 本轮核心提供稳定的门控、固定快照和 `context_pack` 契约。DSH Adapter 继续采集会话。
 
@@ -145,18 +145,86 @@ Context Pack 使用唯一的版本化编码：固定的系统说明、带 ID/信
 
 DSH 的公开 `webServer.register()` 只提供 HTTP carrier；`Connection` 对自定义路由的 cookie/launch-token 鉴权没有公开稳定契约。现有 Adapter 对 `connection.requestRejection()` / `connection.admit()` 的 duck typing 只能作为受版本锁定的兼容实现，不得被当作安全边界或发布前提。
 
-本规范不允许通过 `/amem-api` 发布任何读取或变更型业务端点，直到满足其一：
+### 6.1 威胁模型
 
-1. DSH 发布公开、稳定的自定义路由认证 guard / native RPC；或
-2. amem 定义并实现独立、可审计的认证与 CSRF 模型，且通过本地及跨站安全测试。
+独立认证必须防止：
 
-在此之前，冲突裁决等变更操作由 CLI 完成；DSH 面板只可发布无业务请求的静态视觉框架、说明和 CLI 入口提示。筛选、分页、读取列表、配置和所有操作按钮显示“等待安全 HTTP/RPC 发布门”，不可触发网络请求；它们使用可聚焦的说明按钮（非误导性 disabled 控件），以 `aria-live` 宣告原因并将焦点带到 CLI 替代说明。现有 Adapter 的 `DELETE /memories`、配置写入、flush、rebuild、consolidate、compile 和提案应用等变更路由必须运行时硬禁用；`GET /config` 也不得再向浏览器返回 `api_key`。不得以现有 `requestRejection/admit` 私有 duck typing 绕开该门。
+- 未持有 amem 管理能力的网页或网络客户端读取、搜索或修改记忆；
+- 跨站请求伪造、宽松 CORS、DNS rebinding 与 Host/Origin 混淆；
+- 浏览器持久存储泄露长期能力令牌；
+- 令牌在日志、URL、错误或配置读取响应中泄露；
+- 已撤销、过期或权限不足的令牌继续调用方法。
+
+边界外风险：同一 DSH renderer 内的恶意插件、以同一 OS 用户运行的恶意进程已具有读取文件和操纵宿主的等价权限，本方案不声称隔离它们。安装第三方 DSH 插件仍是用户级信任决策。
+
+### 6.2 长期能力令牌
+
+新增 CLI：
+
+- `amem auth issue --target dsh --scopes <csv> [--ttl <duration>]`：使用 CSPRNG 生成 256-bit bearer token，只显示一次；
+- `amem auth list`：仅显示 token id、scope、创建/过期/最后使用时间，不显示原文；
+- `amem auth revoke <token-id>`：立即撤销并使其派生的浏览器会话失效。
+
+磁盘只保存 token 的 SHA-256 哈希、随机 token id、scope、时间和状态，路径为 `~/.amem/auth/dsh-tokens.json`，写入经原子替换与跨进程锁。令牌不得放入 URL、`amem.toml`、浏览器 `localStorage` 或日志。
+
+P0 scope：
+
+- `memory:read`、`memory:forget`、`memory:resolve-conflict`；
+- `proposal:read`、`proposal:apply`、`skill:read`；
+- `ops:doctor`、`ops:flush`、`ops:rebuild`、`ops:consolidate`、`ops:compile`；
+- `config:read`、`config:write`。
+
+默认签发最小 scope；CLI 必须显式请求危险 scope。
+
+### 6.3 浏览器会话
+
+面板首次进入显示解锁页。用户粘贴长期 token 后，客户端用 `Authorization: Bearer <token>` 调用 `POST /amem-api/auth/session`。服务端校验精确 Origin/Host、token 哈希、scope、过期与撤销状态，然后：
+
+1. 创建随机、进程内保存的短会话，最长 8 小时且不超过长期 token 的剩余 TTL；
+2. 设置 `HttpOnly; SameSite=Strict; Path=/amem-api` cookie；HTTPS 时必须 `Secure`；
+3. 返回仅驻留于当前页面内存的 CSRF token、scope 和到期时间；
+4. 对失败认证做有界速率限制，不在响应中区分 token 不存在、过期或已撤销。
+
+页面刷新后允许凭 HttpOnly 会话通过 `POST /amem-api/auth/csrf` 领取新的短 CSRF token。`DELETE /amem-api/auth/session` 使当前会话失效。服务重启使全部短会话失效，用户重新解锁。
+
+所有 RPC 都要求有效会话 cookie；变更方法额外要求 `X-CSRF-Token`、精确 Origin 与 `Sec-Fetch-Site: same-origin|none`。不发送任何 `Access-Control-Allow-Origin`。允许的 DSH origin 必须在配置中精确列出；默认只接受当前 loopback origin，远程使用必须显式配置 HTTPS origin。
+
+### 6.4 RPC 契约
+
+除认证端点外，面板只调用 `POST /amem-api/rpc`：
+
+```ts
+type RpcRequest = {
+  id: string;
+  method: RpcMethod;
+  params: unknown;
+};
+
+type RpcResponse =
+  | { id: string; ok: true; result: unknown }
+  | { id: string; ok: false; error: { code: string; message: string; details?: unknown } };
+```
+
+服务端使用固定方法注册表，不允许动态函数名或文件路径。请求体上限 64 KiB；`id`、搜索词及字符串参数有长度上限；JSON 解析、schema 校验、scope 检查均在业务调用前完成。错误码稳定映射为 `invalid_argument`、`unauthenticated`、`permission_denied`、`not_found`、`conflict`、`rate_limited`、`internal`，不得返回堆栈或密钥。
+
+方法与 scope：
+
+- `memory.list/get` → `memory:read`；
+- `memory.forget` → `memory:forget`；
+- `conflict.list/get` → `memory:read`；
+- `conflict.resolve` → `memory:resolve-conflict`；
+- `skill.list` → `skill:read`；
+- `proposal.list` → `proposal:read`，`proposal.apply` → `proposal:apply`；
+- `ops.doctor/flush/rebuild/consolidate/compile` → 对应 `ops:*`；
+- `config.get` → `config:read`，`config.put` → `config:write`。
+
+`config.get` 永不返回 `llm.api_key`；`config.put` 的空密钥表示不修改，显式替换须使用单独的 write-only 字段。每个 RPC 写入结构化审计：actor token id、方法、目标引用、结果码和时间；不记录 bearer、CSRF、查询原文、记忆正文或完整配置。
 
 ## 7. 列表 API、过滤与分页
 
 ### 7.1 记忆 API
 
-在满足第 6 节 HTTP 信任边界后，`GET /amem-api/memories` 接受：
+`memory.list` RPC 接受：
 
 - `page`：正整数，默认 `1`；
 - `pageSize`：`20`、`50` 或 `100`，默认 `20`；
@@ -190,14 +258,14 @@ DSH 的公开 `webServer.register()` 只提供 HTTP carrier；`Connection` 对�
 
 首期只有记忆列表实现服务端筛选与分页。能力和提案保持当前完整列表 API，避免在没有真实大数据需求时扩大 HTTP 契约。
 
-### 7.3 HTTP 发布门后的变更与审阅
+### 7.3 RPC 变更与审阅
 
-安全发布门满足后，HTTP 端点逐项开放且都使用认证 actor、权限检查、Origin / CSRF 防护和请求体上限：
+所有方法都使用第 6 节的认证 actor、scope、Origin / CSRF 防护和请求体上限：
 
-- `DELETE /amem-api/memories/:id` 要求 `memory:forget`，确认后执行单记忆 coordinator mutation；成功后面板重新请求当前页，若页空则按第 8.2 的页码规则调整，并将焦点移至同一行的相邻项或列表标题。
-- `GET/PUT /amem-api/config` 分别要求 `config:read` / `config:write`；读取永不返回 `api_key`，写入使用既有磁盘基线 overlay，成功后返回脱敏配置和刷新提示。
-- `GET /amem-api/review` 返回冲突对列表及版本 token；默认选中第一对。`GET /amem-api/conflicts/:leftId/:rightId` 读取当前对比详情；用户切换对比对象时未完成确认须先显式取消。详情 404/409 时返回列表、刷新并以 `aria-live` 说明该冲突已变更。
-- `POST /amem-api/conflicts/:leftId/resolve` 要求 `memory:resolve-conflict`；成功后刷新冲突列表，保留下一条可用选择或返回列表标题。
+- `memory.forget` 确认后执行单记忆 coordinator mutation；成功后面板重新请求当前页，若页空则按第 8.2 的页码规则调整，并将焦点移至同一行的相邻项或列表标题。
+- `config.get/put` 读取永不返回 `api_key`，写入使用既有磁盘基线 overlay，成功后返回脱敏配置和刷新提示。
+- `conflict.list` 返回冲突对列表及版本 token，默认选中第一对；`conflict.get` 读取当前对比详情；用户切换对比对象时未完成确认须先显式取消。详情 `not_found/conflict` 时返回列表、刷新并以 `aria-live` 说明该冲突已变更。
+- `conflict.resolve` 成功后刷新冲突列表，保留下一条可用选择或返回列表标题。
 
 ## 8. DSH 面板信息架构与视觉
 
@@ -218,7 +286,7 @@ DSH 的公开 `webServer.register()` 只提供 HTTP carrier；`Connection` 对�
 
 ### 8.3 审阅、运维与配置
 
-HTTP 发布门满足后的首期“审阅”视图只聚焦冲突列表、详情对比与裁决；冲突按更新时间倒序并优先展示。冲突以左右并排的可比较视图呈现，窄屏改为 A 后 B 的纵向布局及固定裁决区，固定区不得遮挡可滚动正文。
+首期“审阅”视图聚焦冲突列表、详情对比与裁决；冲突按更新时间倒序并优先展示。冲突以左右并排的可比较视图呈现，窄屏改为 A 后 B 的纵向布局及固定裁决区，固定区不得遮挡可滚动正文。
 
 确认框必须展示 A/B 标题、动作后果和“并存”的含义；提交时禁用所有动作，成功后关闭确认、刷新列表并以 `aria-live` 宣告结果。409 时保留用户选择，重新读取两条记忆并要求再次确认。确认框使用原生语义或完整焦点陷阱、Esc 关闭和焦点返还。
 
@@ -232,16 +300,18 @@ HTTP 发布门满足后的首期“审阅”视图只聚焦冲突列表、详情
 2. 门控测试覆盖三种显式模式、全部 `MemoryStatus`、未决和人工并存冲突硬拒绝、`use/verify/ignore`、预算截断、安全撤销、注入文本编码和提示注入攻击集。
 3. 快照测试覆盖 epoch `open/committed/revoked/degraded` 状态机、完整键 SHA-256 映射、并发首次创建的单一胜者、同 epoch 稳定、每个提交点崩溃恢复、配置变化只告警、安全收紧的投递前 generation 校验、任务切换 generation fencing、损坏快照零记忆降级和显式 epoch 重置。
 4. 冲突测试覆盖旧标记迁移、结构化双向关联、多重冲突状态重算、三种裁决、所有 mutation 经过 coordinator、跨进程 fencing lockfile 互斥、每个 journal 阶段的崩溃重放、preimage 不匹配拒绝恢复、恶意 journal 拒绝、版本冲突和幂等审计。
-5. CLI 测试覆盖由 ActorAuthority 签发的权限、审阅契约的 not found、invalid argument 和 conflict 映射；通用 stdio MCP 测试确认不存在冲突裁决/快照写工具。HTTP API 只有满足第 6 节发布门后才测试独立鉴权、CSRF、Origin、请求体限制、跨站拒绝及第 7.3 节各端点权限。
-6. HTTP 发布门满足后，UI 测试或可验证渲染覆盖筛选重置页码、翻页、首次加载、刷新、空态、超范围页、错误/部分失败、禁用态、确认/409 恢复、Tab/筛选/分页焦点顺序和结果数 `aria-live` 宣告；人工检查 320px、768px、1024px 宽度。门前静态面板测试不得发出 `/amem-api` 请求，并提供 CLI/MCP 替代入口提示。
-7. 安全测试覆盖含密钥/PII 的快照和审计脱敏、目录权限、恶意 HTML/URL 纯文本渲染、session 越权、被拒绝的跨站变更及搜索字段不留原文。工具调用、权限升级、数据导出和状态修改必须由用户请求与宿主授权决定，不能仅因记忆文本触发。
-8. 回归运行 core、retrieval、store、gateway-mcp、adapter-dsh 和 amem-dsh-ui 的现有测试与构建。
+5. CLI 测试覆盖由 ActorAuthority 签发的权限、审阅契约的 not found、invalid argument 和 conflict 映射；通用 stdio MCP 测试确认不存在冲突裁决/快照写工具。
+6. 独立认证/RPC 测试覆盖 token 签发/哈希/最小 scope/过期/撤销、短会话与重启失效、CSRF、Origin/Host、远程 HTTPS origin、请求体限制、认证速率限制、跨站拒绝、稳定错误码、方法 scope 矩阵和审计脱敏。
+7. UI 测试或可验证渲染覆盖解锁/过期/权限不足、筛选重置页码、翻页、首次加载、刷新、空态、超范围页、错误/部分失败、禁用态、确认/409 恢复、Tab/筛选/分页焦点顺序和结果数 `aria-live` 宣告；人工检查 320px、768px、1024px 宽度。
+8. 安全测试覆盖含密钥/PII 的快照和审计脱敏、目录权限、恶意 HTML/URL 纯文本渲染、session 越权、被拒绝的跨站变更及搜索字段不留原文。工具调用、权限升级、数据导出和状态修改必须由用户请求与宿主授权决定，不能仅因记忆文本触发。
+9. 回归运行 core、retrieval、store、gateway-mcp、adapter-dsh 和 amem-dsh-ui 的现有测试与构建。
 
 ## 10. 实施顺序
 
 1. 核心类型、配置、结构化冲突关系、门控决定、EpochAuthority/ActorAuthority、epoch 快照、编码/脱敏、MutationCoordinator 和 journal。
 2. 将 pipeline、CLI、gateway-mcp、adapter-dsh admin、MemoryStore 相关调用和索引重建全部迁移至 MutationCoordinator；在编译期收紧直接写接口为 coordinator 私有。
 3. CLI 审阅、裁决及记忆列表契约；通用 stdio MCP 仅保留 read/note/feedback 且走 coordinator；完成并发和故障恢复测试。
-4. DSH 面板组件化、导航和门前静态降级态；仅在第 6 节 HTTP 发布门满足后接入筛选分页和审阅视图。
-5. 固定 DSH `dsh-v0.2.0-rc.2` 的实验性自动注入 feature flag、section 生命期和撤销集成测试。
-6. 全量测试、构建、手动 DSH 宽窄屏验证。
+4. 实现 P0 长期 token CLI、短会话、CSRF/Origin 防护、固定 RPC 注册表和方法权限矩阵；替换现有 `/amem-api` REST 与私有 Connection 鉴权。
+5. DSH 面板组件化、解锁页、导航、筛选分页、审阅、配置与运维视图。
+6. 固定 DSH `dsh-v0.2.0-rc.2` 的实验性自动注入 feature flag、section 生命期和撤销集成测试。
+7. 全量测试、构建、手动 DSH 本地/远程与宽窄屏验证。
