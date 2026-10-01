@@ -1,4 +1,4 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -84,5 +84,23 @@ describe("DshTokenStore", () => {
     const store2 = new DshTokenStore(home);
     expect(store2.verify(token)).toEqual({ id: record.id, scopes: ["memory:read"] });
     expect(store2.list()).toHaveLength(1);
+  });
+
+  it("refuses to overwrite a corrupt token store", () => {
+    const home = setup();
+    writeFileSync(paths(home).dshTokens, "{not-json", "utf8");
+    const store = new DshTokenStore(home);
+    expect(() => store.issue(["memory:read"], 60 * 60 * 1000)).toThrow(/corrupt/);
+    expect(readFileSync(paths(home).dshTokens, "utf8")).toBe("{not-json");
+  });
+
+  it("skips records with missing hash during verify", () => {
+    const home = setup();
+    const store = new DshTokenStore(home);
+    const { token } = store.issue(["memory:read"], 60 * 60 * 1000);
+    const file = JSON.parse(readFileSync(paths(home).dshTokens, "utf8"));
+    delete file.tokens[0].hash;
+    writeFileSync(paths(home).dshTokens, JSON.stringify(file), "utf8");
+    expect(store.verify(token)).toBeNull();
   });
 });

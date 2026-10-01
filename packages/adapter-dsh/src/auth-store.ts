@@ -186,7 +186,13 @@ export class DshTokenStore {
     for (const t of file.tokens) {
       if (t.revokedAt) continue;
       if (new Date(t.expiresAt).getTime() <= now) continue;
-      const recordHash = Buffer.from(t.hash, "base64url");
+      if (typeof t.hash !== "string" || !t.hash) continue;
+      let recordHash: Buffer;
+      try {
+        recordHash = Buffer.from(t.hash, "base64url");
+      } catch {
+        continue;
+      }
       if (recordHash.length !== hash.length) continue;
       if (timingSafeEqual(recordHash, hash)) {
         return { id: t.id, scopes: t.scopes };
@@ -221,9 +227,9 @@ export class DshTokenStore {
         return data as TokenFile;
       }
     } catch {
-      /* corrupt or empty */
+      /* corrupt JSON */
     }
-    return { version: 1, tokens: [] };
+    throw new Error(`corrupt or unsupported DSH token store: ${this.path}`);
   }
 
   private writeFile(file: TokenFile): void {
