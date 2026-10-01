@@ -12,6 +12,7 @@
     "accept:p0": "node scripts/accept-p0.mjs",
     "accept:p1": "node scripts/accept-p1.mjs",
     "accept:p2": "node scripts/accept-p2.mjs",
+    "accept:dsh-admin": "node scripts/accept-dsh-admin.mjs",
     "amem": "node packages/cli/dist/bin.js"
   },
   "devDependencies": {
