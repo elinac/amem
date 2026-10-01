@@ -722,6 +722,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
             createElement(FilterBar, {
               t,
               filters: { ...filters, pageSize: filters.pageSize },
+              searchValue: searchInput,
               facets: currentData?.facets,
               busy: listState.kind === "loading" || tabBusy,
               onSearch,

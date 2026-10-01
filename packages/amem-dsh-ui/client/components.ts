@@ -72,11 +72,12 @@ export function UnlockView(props: {
   onUnlock: (token: string) => void;
 }): React.ReactElement {
   const { t, busy, error, onUnlock } = props;
-  let inputValue = "";
+  const inputRef = { current: null as HTMLInputElement | null };
 
   const submit = () => {
-    const token = inputValue.trim();
-    inputValue = "";
+    const el = inputRef.current;
+    const token = (el?.value ?? "").trim();
+    if (el) el.value = "";
     if (token) onUnlock(token);
   };
 
@@ -98,8 +99,9 @@ export function UnlockView(props: {
         placeholder: format(t, "unlock.placeholder"),
         disabled: busy,
         autoFocus: true,
-        onChange: (e: { target: { value: string } }) => {
-          inputValue = e.target.value;
+        autoComplete: "off",
+        ref: (node: HTMLInputElement | null) => {
+          inputRef.current = node;
         },
         onKeyDown: (e: { key: string; preventDefault: () => void }) => {
           if (e.key === "Enter") {
@@ -258,6 +260,7 @@ function FilterSelect<T extends string>(props: {
 export function FilterBar(props: {
   t: Translate;
   filters: ListMemoryFilters & { pageSize: number };
+  searchValue: string;
   facets: MemoryFacets | undefined;
   busy: boolean;
   onSearch: (q: string) => void;
@@ -267,21 +270,30 @@ export function FilterBar(props: {
   onClear: () => void;
   narrow: boolean;
 }): React.ReactElement {
-  const { t, filters, facets, busy, onSearch, onFilter, onPageSize, onRefresh, onClear, narrow } =
-    props;
+  const {
+    t,
+    filters,
+    searchValue,
+    facets,
+    busy,
+    onSearch,
+    onFilter,
+    onPageSize,
+    onRefresh,
+    onClear,
+    narrow,
+  } = props;
 
   const pageSize = filters.pageSize;
-  let searchValue = filters.q ?? "";
 
   const searchInput = createElement("input", {
     type: "search",
-    defaultValue: searchValue,
+    value: searchValue,
     placeholder: format(t, "search.placeholder"),
     "aria-label": format(t, "search.placeholder"),
     disabled: busy,
     onChange: (e: { target: { value: string } }) => {
-      searchValue = e.target.value;
-      onSearch(searchValue);
+      onSearch(e.target.value);
     },
     style: mergeStyle(styles.searchInput, { flex: narrow ? "1 0 140px" : undefined }),
   });
