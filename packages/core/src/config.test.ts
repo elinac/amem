@@ -25,6 +25,21 @@ describe("DSH admin config TOML", () => {
     cfg.dsh.admin.auth_failure_limit = 8;
     expect(parseSimpleToml(configToToml(cfg)).dsh.admin).toEqual(cfg.dsh.admin);
   });
+
+  it("falls back when allowed_origins is a scalar", () => {
+    const parsed = parseSimpleToml(`
+[dsh.admin]
+allowed_origins = "http://127.0.0.1:3000"
+session_ttl_minutes = 30
+auth_failure_limit = 3
+`);
+    expect(parsed.dsh.admin.allowed_origins).toEqual([
+      "http://127.0.0.1",
+      "http://localhost",
+    ]);
+    expect(parsed.dsh.admin.session_ttl_minutes).toBe(30);
+    expect(parsed.dsh.admin.auth_failure_limit).toBe(3);
+  });
 });
 
 describe("escapeTomlString", () => {

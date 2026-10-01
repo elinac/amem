@@ -192,7 +192,11 @@ function sanitizeDshConfig(dsh: AmemConfig["dsh"]): void {
     100,
     DEFAULT_DSH_ADMIN.auth_failure_limit,
   );
-  const origins = dsh.admin.allowed_origins.filter(isValidAllowedOrigin);
+  const rawOrigins = dsh.admin.allowed_origins;
+  const candidates = Array.isArray(rawOrigins) ? rawOrigins : [];
+  const origins = candidates.filter(
+    (o): o is string => typeof o === "string" && isValidAllowedOrigin(o),
+  );
   dsh.admin.allowed_origins =
     origins.length > 0 ? origins : [...DEFAULT_DSH_ADMIN.allowed_origins];
 }
