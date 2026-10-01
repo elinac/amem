@@ -165,6 +165,78 @@ describe("/amem-api independent auth routes", () => {
     expect(headers()["x-content-type-options"]).toBe("nosniff");
   });
 
+  it("logs out with a ported loopback origin matching the panel allowlist", async () => {
+    const home = tempAmemHome(true);
+    const { token } = new DshTokenStore(home).issue(["memory:read"], 60 * 60 * 1000);
+    const handler = mountHandler(home);
+    const panel = {
+      origin: "http://127.0.0.1:7788",
+      host: "127.0.0.1:7788",
+    };
+
+    const login = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/auth/session", {
+        body: JSON.stringify({ bearer: token }),
+        headers: panel,
+      }),
+      login.res,
+    );
+    expect(login.status()).toBe(200);
+    const cookieValue = String(login.headers()["set-cookie"]).split(";")[0]!;
+
+    const logout = mockRes();
+    await handler(
+      mockReq("DELETE", "/amem-api/auth/session", {
+        headers: { ...panel, cookie: cookieValue },
+      }),
+      logout.res,
+    );
+    expect(logout.status()).toBe(200);
+    expect((logout.json() as { ok: boolean }).ok).toBe(true);
+    const cleared = String(logout.headers()["set-cookie"]);
+    expect(cleared).toContain("Max-Age=0");
+
+    const rpc = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/rpc", {
+        body: JSON.stringify({ id: "1", method: "memory.list", params: {} }),
+        headers: { ...panel, cookie: cookieValue },
+      }),
+      rpc.res,
+    );
+    expect(rpc.status()).toBe(401);
+  });
+
+  it("rejects logout from a remote origin", async () => {
+    const home = tempAmemHome(true);
+    const { token } = new DshTokenStore(home).issue(["memory:read"], 60 * 60 * 1000);
+    const handler = mountHandler(home);
+
+    const login = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/auth/session", {
+        body: JSON.stringify({ bearer: token }),
+        headers: { origin: "http://127.0.0.1", host: "127.0.0.1" },
+      }),
+      login.res,
+    );
+    const cookieValue = String(login.headers()["set-cookie"]).split(";")[0]!;
+
+    const logout = mockRes();
+    await handler(
+      mockReq("DELETE", "/amem-api/auth/session", {
+        headers: {
+          origin: "http://evil.example",
+          host: "evil.example",
+          cookie: cookieValue,
+        },
+      }),
+      logout.res,
+    );
+    expect(logout.status()).toBe(401);
+  });
+
   it("allows local RPC without a session when auth is disabled by default", async () => {
     const handler = mountHandler(tempAmemHome());
     const { res, status, json } = mockRes();
@@ -179,7 +251,7 @@ describe("/amem-api independent auth routes", () => {
     expect((json() as { ok: boolean }).ok).toBe(true);
   });
 
-  it("runs mutating RPC without sec-fetch-site when auth is disabled", async () => {
+  it("rejects mutating RPC without sec-fetch-site when auth is disabled", async () => {
     const handler = mountHandler(tempAmemHome());
     const { res, status, json } = mockRes();
     await handler(
@@ -189,8 +261,8 @@ describe("/amem-api independent auth routes", () => {
       }),
       res,
     );
-    expect(status()).toBe(200);
-    expect((json() as { ok: boolean }).ok).toBe(true);
+    expect(status()).toBe(401);
+    expect((json() as { ok: boolean; error: { code: string } }).error.code).toBe("unauthenticated");
   });
 
   /**
@@ -375,6 +447,41 @@ describe("/amem-api independent auth routes", () => {
           id: "1",
           method: "config.put",
           params: { config: { llm: { mode: "external" } } },
+        }),
+        headers: dshPanelHeaders({
+          cookie: cookieValue,
+          "x-csrf-token": loginBody.csrfToken,
+        }),
+      }),
+      rpc.res,
+    );
+    expect(rpc.status()).toBe(200);
+    expect((rpc.json() as { ok: boolean }).ok).toBe(true);
+  });
+
+  it("accepts legacy x-amem-csrf header for mutating RPC", async () => {
+    const home = tempAmemHome(true);
+    const { token } = new DshTokenStore(home).issue(["config:write", "config:read"], 60 * 60 * 1000);
+    const handler = mountHandler(home);
+
+    const login = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/auth/session", {
+        body: JSON.stringify({ bearer: token }),
+        headers: dshPanelHeaders(),
+      }),
+      login.res,
+    );
+    const loginBody = login.json() as { csrfToken: string };
+    const cookieValue = String(login.headers()["set-cookie"]).split(";")[0]!;
+
+    const rpc = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/rpc", {
+        body: JSON.stringify({
+          id: "1",
+          method: "config.put",
+          params: { config: { llm: { mode: "stub" } } },
         }),
         headers: dshPanelHeaders({
           cookie: cookieValue,

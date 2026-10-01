@@ -185,9 +185,9 @@ export class BrowserSessionManager {
     if (!this.validateLocalAccess(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
-    // Local/no-auth mode: allow missing Sec-Fetch-Site (common in embedded webviews),
-    // but still reject explicit cross-site requests.
-    if (isMutating(required) && meta.secFetchSite != null && !this.validateSecFetchSite(meta)) {
+    // Same CSRF-site posture as authenticated mode: mutating RPC must present an
+    // allowed Sec-Fetch-Site (same-origin | same-site | none). Browsers always send it.
+    if (isMutating(required) && !this.validateSecFetchSite(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
     return { ok: true, tokenId: "local", scopes: [...ALL_DSH_ADMIN_SCOPES] };

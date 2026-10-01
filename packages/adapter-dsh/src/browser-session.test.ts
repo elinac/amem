@@ -112,7 +112,7 @@ describe("BrowserSessionManager local access", () => {
       origin: "http://127.0.0.1:7788",
       host: "127.0.0.1:7788",
     });
-    expect(mutateNoSec.ok).toBe(true);
+    expect(mutateNoSec.ok).toBe(false);
 
     const mutateSameSite = manager.authorizeLocal(["ops:rebuild"], {
       origin: "http://127.0.0.1:7788",

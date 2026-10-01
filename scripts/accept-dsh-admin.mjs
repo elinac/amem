@@ -95,6 +95,7 @@ function httpPost(baseUrl, path, body, extraHeaders = {}) {
 async function rpc(url, cookie, method, params, csrf) {
   const headers = { cookie };
   if (csrf) {
+    headers["x-csrf-token"] = csrf;
     headers["x-amem-csrf"] = csrf;
     // Match DSH panel: embedded workbench fetch typically sends same-site.
     headers["sec-fetch-site"] = "same-site";

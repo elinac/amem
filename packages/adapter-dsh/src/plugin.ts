@@ -123,6 +123,21 @@ function sendJson(
   res.end(payload);
 }
 
+function sendUnauth(res: ServerResponse): void {
+  sendJson(res, 401, { error: "unauthenticated", message: "unauthenticated" }, {
+    "cache-control": "no-store",
+  });
+}
+
+/** Prefer design-name `X-CSRF-Token`; accept legacy `X-Amem-Csrf`. */
+function readCsrfHeader(req: IncomingMessage): string | undefined {
+  const primary = req.headers["x-csrf-token"];
+  if (typeof primary === "string" && primary) return primary;
+  const legacy = req.headers["x-amem-csrf"];
+  if (typeof legacy === "string" && legacy) return legacy;
+  return undefined;
+}
+
 function requestMeta(req: IncomingMessage): {
   origin: string;
   host: string;
@@ -273,12 +288,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
               secFetchSite: meta.secFetchSite,
             });
             if (!result.ok) {
-              sendJson(
-                res,
-                401,
-                { error: "unauthenticated", message: "unauthenticated" },
-                { "cache-control": "no-store" },
-              );
+              sendUnauth(res);
               return;
             }
             sendJson(
@@ -301,12 +311,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           if (method === "GET" && path === "/auth/status") {
             const result = sessions.authorizeLocal([], meta);
             if (!result.ok) {
-              sendJson(
-                res,
-                401,
-                { error: "unauthenticated", message: "unauthenticated" },
-                { "cache-control": "no-store" },
-              );
+              sendUnauth(res);
               return;
             }
             sendJson(
@@ -322,12 +327,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
             const cookie = parseCookie(req.headers.cookie);
             const result = sessions.issueCsrf(cookie, meta);
             if (!result.ok) {
-              sendJson(
-                res,
-                401,
-                { error: "unauthenticated", message: "unauthenticated" },
-                { "cache-control": "no-store" },
-              );
+              sendUnauth(res);
               return;
             }
             sendJson(
@@ -340,32 +340,9 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           }
 
           if (method === "DELETE" && path === "/auth/session") {
-            if (!cfg.allowed_origins.includes(meta.origin)) {
-              sendJson(
-                res,
-                401,
-                { error: "unauthenticated", message: "unauthenticated" },
-                { "cache-control": "no-store" },
-              );
-              return;
-            }
-            try {
-              if (new URL(meta.origin).host !== meta.host) {
-                sendJson(
-                  res,
-                  401,
-                  { error: "unauthenticated", message: "unauthenticated" },
-                  { "cache-control": "no-store" },
-                );
-                return;
-              }
-            } catch {
-              sendJson(
-                res,
-                401,
-                { error: "unauthenticated", message: "unauthenticated" },
-                { "cache-control": "no-store" },
-              );
+            const access = sessions.authorizeLocal([], meta);
+            if (!access.ok) {
+              sendUnauth(res);
               return;
             }
             const cookie = parseCookie(req.headers.cookie);
@@ -393,8 +370,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
               return;
             }
             const cookie = parseCookie(req.headers.cookie);
-            const csrfHeader = req.headers["x-amem-csrf"];
-            const csrf = typeof csrfHeader === "string" ? csrfHeader : undefined;
+            const csrf = readCsrfHeader(req);
             const auth: RpcAuth = cfg.auth_enabled
               ? (required) => sessions.authenticate(cookie, csrf, [required], meta)
               : (required) => sessions.authorizeLocal([required], meta);

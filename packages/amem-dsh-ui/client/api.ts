@@ -159,7 +159,10 @@ async function rpcCall<T>(method: string, params: unknown): Promise<RpcResult<T>
     accept: "application/json",
     "content-type": "application/json",
   };
-  if (csrf) headers["x-amem-csrf"] = csrf;
+  if (csrf) {
+    headers["x-csrf-token"] = csrf;
+    headers["x-amem-csrf"] = csrf;
+  }
   const res = await fetch("/amem-api/rpc", {
     method: "POST",
     credentials: "same-origin",
