@@ -142,6 +142,7 @@ export class DshTokenStore {
     const p = paths(home);
     this.path = p.dshTokens;
     this.lockDir = join(p.auth, ".issue-lock");
+    mkdirSync(p.auth, { recursive: true });
   }
 
   issue(scopes: DshAdminScope[], ttlMs: number): { token: string; record: PublicTokenRecord } {

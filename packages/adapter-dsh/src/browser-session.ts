@@ -158,11 +158,6 @@ export class BrowserSessionManager {
       if (raw) this.sessions.delete(sha256(raw).toString("base64url"));
       return { ok: false, error: "unauthenticated" };
     }
-    for (const scope of required) {
-      if (!session.scopes.includes(scope)) {
-        return { ok: false, error: "unauthenticated" };
-      }
-    }
     return { ok: true, tokenId: session.tokenId, scopes: session.scopes };
   }
 

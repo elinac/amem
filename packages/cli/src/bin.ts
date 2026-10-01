@@ -248,6 +248,7 @@ async function main(): Promise<void> {
       p.manifests,
       p.queue,
       p.logs,
+      p.auth,
       p.capabilities,
       join(p.capabilities, "skills"),
       join(p.capabilities, ".proposals"),

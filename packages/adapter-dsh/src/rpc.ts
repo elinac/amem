@@ -78,7 +78,11 @@ function safePositiveInt(v: unknown, name: string): number {
 
 function safeOptionalEnum<T extends string | number>(v: unknown, name: string, values: readonly T[]): T | undefined {
   if (v === undefined || v === null) return undefined;
-  if (typeof v !== "string") throw new RpcParseError(`${name} must be a string`);
+  if (typeof v === "number") {
+    if (!values.includes(v as T)) throw new RpcParseError(`invalid ${name}`);
+    return v as T;
+  }
+  if (typeof v !== "string") throw new RpcParseError(`${name} must be a string or number`);
   if (!values.includes(v as T)) throw new RpcParseError(`invalid ${name}`);
   return v as T;
 }
