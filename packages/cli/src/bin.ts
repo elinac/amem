@@ -148,7 +148,7 @@ function installDsh(home: string): void {
 const mod = await import(${JSON.stringify(adapterFileUrl)});
 export const name = "amem-dsh-host";
 // Cordis Loader only sees THIS module — re-export inject so apply waits for services.
-export const inject = mod.inject ?? ["webServer", "connection"];
+export const inject = mod.inject ?? ["webServer"];
 export function apply(ctx) {
   mod.apply(ctx, {
     amemHome: ${JSON.stringify(homePath)},
@@ -219,6 +219,8 @@ export function apply(ctx) {
         hostWrapper: wrapperUrl,
         ui: uiFileUrl,
         startHint: patchMerged ? "dsh web" : `dsh web --patch "${overlayPath}"`,
+        authHint:
+          "amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read",
       },
       null,
       2,
