@@ -8,6 +8,10 @@
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./proposal-gates": {
+      "types": "./dist/proposal-gates.d.ts",
+      "import": "./dist/proposal-gates.js"
     }
   },
   "scripts": {

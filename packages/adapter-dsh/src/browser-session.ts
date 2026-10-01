@@ -68,6 +68,21 @@ function randomToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
+
+function isLoopbackHostname(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === "localhost" || host === "127.0.0.1" || host === "::1";
+}
+
+function isLoopbackHost(host: string): boolean {
+  try {
+    return isLoopbackHostname(new URL(`http://${host}`).hostname);
+  } catch {
+    const hostname = host.replace(/^\[|\]$/g, "").split("%")[0]!.split(":")[0]!;
+    return isLoopbackHostname(hostname);
+  }
+}
+
 function clientKeyFor(input: LoginInput): string {
   return input.clientKey ?? input.origin;
 }
@@ -87,7 +102,7 @@ export class BrowserSessionManager {
   }
 
   login(input: LoginInput): LoginResult {
-    if (!this.validateOriginHost(input)) {
+    if (!this.validateLocalAccess(input)) {
       return { ok: false, error: "unauthenticated" };
     }
 
@@ -120,7 +135,7 @@ export class BrowserSessionManager {
   }
 
   issueCsrf(cookie: string, requestMeta: RequestMeta): CsrfResult {
-    if (!this.validateOriginHost(requestMeta)) {
+    if (!this.validateLocalAccess(requestMeta)) {
       return { ok: false, error: "unauthenticated" };
     }
     const session = this.resolveSession(cookie);
@@ -143,7 +158,7 @@ export class BrowserSessionManager {
     required: DshAdminScope[],
     meta: RequestMeta,
   ): AuthResult {
-    if (!this.validateOriginHost(meta)) {
+    if (!this.validateLocalAccess(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
     if (isMutating(required) && !this.validateSecFetchSite(meta)) {
@@ -167,10 +182,12 @@ export class BrowserSessionManager {
   }
 
   authorizeLocal(required: DshAdminScope[], meta: RequestMeta): AuthResult {
-    if (!this.validateOriginHost(meta)) {
+    if (!this.validateLocalAccess(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
-    if (isMutating(required) && !this.validateSecFetchSite(meta)) {
+    // Local/no-auth mode: allow missing Sec-Fetch-Site (common in embedded webviews),
+    // but still reject explicit cross-site requests.
+    if (isMutating(required) && meta.secFetchSite != null && !this.validateSecFetchSite(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
     return { ok: true, tokenId: "local", scopes: [...ALL_DSH_ADMIN_SCOPES] };
@@ -271,9 +288,40 @@ export class BrowserSessionManager {
     }
   }
 
+  private validateLocalAccess(meta: RequestMeta): boolean {
+    if (this.validateOriginHost(meta)) return true;
+    if (!meta.origin) {
+      return isLoopbackHost(meta.host);
+    }
+    try {
+      const originUrl = new URL(meta.origin);
+      if (originUrl.host !== meta.host) return false;
+      if (!isLoopbackHostname(originUrl.hostname)) return false;
+      return this.cfg.allowed_origins.some((allowed) => {
+        try {
+          const allowedUrl = new URL(allowed);
+          return (
+            allowedUrl.protocol === originUrl.protocol &&
+            allowedUrl.hostname === originUrl.hostname &&
+            (allowedUrl.port === "" || allowedUrl.port === originUrl.port)
+          );
+        } catch {
+          return false;
+        }
+      });
+    } catch {
+      return false;
+    }
+  }
+
   private validateSecFetchSite(meta: RequestMeta): boolean {
     if (meta.secFetchSite == null) return false;
-    return meta.secFetchSite === "same-origin" || meta.secFetchSite === "none";
+    // DSH / embedded webviews often send same-site for same-host fetches.
+    return (
+      meta.secFetchSite === "same-origin" ||
+      meta.secFetchSite === "same-site" ||
+      meta.secFetchSite === "none"
+    );
   }
 
   private isRateLimited(clientKey: string): boolean {

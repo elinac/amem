@@ -31,6 +31,13 @@ import {
   rpcErrorMessage,
 } from "./api.js";
 import {
+  dominantGateRollup,
+  formatGateGaps,
+  proposalGateGaps,
+  proposalGateInputFromListRow,
+  rollupProposalGateGaps,
+} from "./proposal-gates.js";
+import {
   EmptyState,
   FilterBar,
   MemoryRow,
@@ -40,6 +47,7 @@ import {
   StatusMessage,
   TopNav,
   UnlockView,
+  enumLabel,
   format,
   mergeStyle,
   type Translate,
@@ -101,13 +109,44 @@ function isListTab(t: Tab): boolean {
 
 type ConfigFormState = {
   path: string | null;
-  config: unknown;
+  config: Record<string, unknown>;
   apiKeyReplacement: string;
 };
 
+type LlmForm = {
+  mode: string;
+  base_url: string;
+  model: string;
+  has_api_key: boolean;
+};
+
+function readLlmForm(config: Record<string, unknown>): LlmForm {
+  const llm =
+    config.llm != null && typeof config.llm === "object" && !Array.isArray(config.llm)
+      ? (config.llm as Record<string, unknown>)
+      : {};
+  return {
+    mode: typeof llm.mode === "string" ? llm.mode : "stub",
+    base_url: typeof llm.base_url === "string" ? llm.base_url : "",
+    model: typeof llm.model === "string" ? llm.model : "",
+    has_api_key: llm.has_api_key === true,
+  };
+}
+
+function patchLlm(
+  config: Record<string, unknown>,
+  patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model">>,
+): Record<string, unknown> {
+  const llm =
+    config.llm != null && typeof config.llm === "object" && !Array.isArray(config.llm)
+      ? { ...(config.llm as Record<string, unknown>) }
+      : {};
+  return { ...config, llm: { ...llm, ...patch } };
+}
+
 function AmemPanel({ t: translate }: { t?: Translate }) {
   const t: Translate = translate ?? fallbackTranslate;
-  const [authState, setAuthState] = useState<AuthState>({ kind: "locked" });
+  const [authState, setAuthState] = useState<AuthState>({ kind: "unlocking" });
   const [tab, setTab] = useState<Tab>("memories");
   const [filters, setFilters] = useState(DEFAULT_MEM_FILTERS);
   const [searchInput, setSearchInput] = useState("");
@@ -115,6 +154,9 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
   const [listState, setListState] = useState<AsyncListState>({ kind: "idle" });
   const [skills, setSkills] = useState<unknown[]>([]);
   const [proposals, setProposals] = useState<unknown[]>([]);
+  const [gapMemories, setGapMemories] = useState<
+    import("./api.js").MemoryListItem[]
+  >([]);
   const [tabBusy, setTabBusy] = useState(false);
   const [tabError, setTabError] = useState<string | null>(null);
   const [opsResult, setOpsResult] = useState<unknown | null>(null);
@@ -129,9 +171,11 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
 
   const handleAuthError = useCallback(
     (err: { code: string; message: string }) => {
-      if (err.code === "unauthenticated") {
-        setAuthState({ kind: "error", message: rpcErrorMessage(err) });
-      }
+      if (err.code !== "unauthenticated") return;
+      setAuthState((prev) => {
+        if (prev.kind === "ready" && prev.authEnabled === false) return prev;
+        return { kind: "error", message: rpcErrorMessage(err) };
+      });
     },
     [],
   );
@@ -150,6 +194,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     async (wanted: ListMemoryFilters & { page: number; pageSize: 20 | 50 | 100 }) => {
       sequenceRef.current += 1;
       const seq = sequenceRef.current;
+      setTabError(null);
       setListState((prev) => ({
         kind: "loading",
         keep: prev.kind === "ready" ? prev.data : undefined,
@@ -215,12 +260,18 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
   const loadProposals = useCallback(async () => {
     setTabBusy(true);
     setTabError(null);
-    const result = await rpc.proposal.list();
+    const [result, memResult] = await Promise.all([
+      rpc.proposal.list(),
+      rpc.memory.list({ page: 1, pageSize: 100 }),
+    ]);
     if (!result.ok) {
       handleAuthError(result.error);
       setTabError(rpcErrorMessage(result.error));
     } else {
       setProposals((result.result.items as unknown[]) ?? []);
+    }
+    if (memResult.ok) {
+      setGapMemories(memResult.result.items ?? []);
     }
     setTabBusy(false);
   }, [handleAuthError]);
@@ -244,7 +295,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     } else {
       setConfigState({
         path: result.result.path,
-        config: result.result.config,
+        config: (result.result.config ?? {}) as Record<string, unknown>,
         apiKeyReplacement: "",
       });
     }
@@ -331,8 +382,18 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
         return;
       }
       setOpsResult(result.result);
+      if (method === "consolidate" && params !== true) {
+        setOpsResult({
+          ...(typeof result.result === "object" && result.result != null
+            ? (result.result as Record<string, unknown>)
+            : { result: result.result }),
+          _hint: format(t, "ops.consolidateToProposals"),
+        });
+        setTab("proposals");
+        void loadProposals();
+      }
     },
-    [sessionId, handleAuthError],
+    [sessionId, handleAuthError, loadProposals, t],
   );
 
   const saveConfig = useCallback(async () => {
@@ -398,7 +459,12 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
         const row = raw as Record<string, unknown>;
         const id = String(row.id ?? row.name ?? i);
         const title = String(row.title ?? row.name ?? id);
-        const meta = [row.kind, row.level, row.trust, row.status]
+        const meta = [
+          row.kind ? enumLabel(t, "kind", String(row.kind)) : null,
+          row.level ? enumLabel(t, "level", String(row.level)) : null,
+          row.trust ? enumLabel(t, "trust", String(row.trust)) : null,
+          row.status ? enumLabel(t, "status", String(row.status)) : null,
+        ]
           .filter(Boolean)
           .join(" · ");
         const preview =
@@ -424,7 +490,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
                 },
               },
               createElement("span", { style: styles.rowTitle }, title),
-              row.status ? createElement("span", { style: styles.badge }, String(row.status)) : null,
+              row.status ? createElement("span", { style: styles.badge }, enumLabel(t, "status", String(row.status))) : null,
             ),
             meta ? createElement("div", { style: styles.rowMeta }, meta) : null,
             preview
@@ -464,6 +530,23 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
           key: row.id,
           t,
           row,
+          gateGaps: formatGateGaps(
+            proposalGateGaps(
+              proposalGateInputFromListRow({
+                kind: row.kind,
+                level: row.level,
+                trust: row.trust,
+                distinct_instances:
+                  typeof row.distinct_instances === "number" ? row.distinct_instances : 0,
+              }),
+            ),
+            {
+              kind: format(t, "gate.kind"),
+              level: format(t, "gate.level"),
+              trust: format(t, "gate.trust"),
+              instances: format(t, "gate.instances"),
+            },
+          ),
           canForget: auth.hasScope("memory:forget"),
           onForget,
         }),
@@ -485,18 +568,68 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
 
   const renderProposals = () => {
     if (tabBusy && proposals.length === 0) return createElement(SkeletonList, { count: 4 });
-    return renderListItems(proposals, (row) =>
-      auth.hasScope("proposal:apply")
-        ? createElement(
-            "button",
-            {
-              type: "button",
-              onClick: () => void onApplyProposal(String(row.id)),
-              style: styles.button,
-            },
-            format(t, "apply.button"),
-          )
-        : null,
+    const memItems = gapMemories;
+    const rollupBanner =
+      proposals.length === 0 && memItems.length > 0
+        ? (() => {
+            const rollup = rollupProposalGateGaps(
+              memItems.map((row) =>
+                proposalGateInputFromListRow({
+                  kind: row.kind,
+                  level: row.level,
+                  trust: row.trust,
+                  distinct_instances:
+                    typeof row.distinct_instances === "number" ? row.distinct_instances : 0,
+                }),
+              ),
+            );
+            const lines = dominantGateRollup(rollup);
+            return createElement(
+              "div",
+              {
+                style: {
+                  marginBottom: tokens.space3,
+                  padding: tokens.space3,
+                  border: `1px solid ${tokens.border}`,
+                  borderRadius: tokens.radiusSm,
+                  color: tokens.textMuted,
+                  fontSize: 13,
+                  lineHeight: 1.5,
+                },
+              },
+              createElement("div", { style: { fontWeight: 600, marginBottom: 4 } }, format(t, "gate.rollupTitle")),
+              lines.length === 0
+                ? format(t, "gate.rollupEmpty")
+                : lines.map(({ gate, count }) =>
+                    createElement(
+                      "div",
+                      { key: gate },
+                      format(t, "gate.rollupLine", {
+                        label: format(t, `gate.${gate}` as AmemKey),
+                        count,
+                      }),
+                    ),
+                  ),
+            );
+          })()
+        : null;
+    return createElement(
+      "div",
+      null,
+      rollupBanner,
+      renderListItems(proposals, (row) =>
+        auth.hasScope("proposal:apply")
+          ? createElement(
+              "button",
+              {
+                type: "button",
+                onClick: () => void onApplyProposal(String(row.id)),
+                style: styles.button,
+              },
+              format(t, "apply.button"),
+            )
+          : null,
+      ),
     );
   };
 
@@ -569,9 +702,19 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
 
   const renderConfig = () => {
     if (!configState) return createElement(SkeletonList, { count: 3 });
+    const llm = readLlmForm(configState.config);
+    const setLlm = (patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model">>) =>
+      setConfigState((prev) =>
+        prev ? { ...prev, config: patchLlm(prev.config, patch) } : prev,
+      );
     return createElement(
       "div",
       null,
+      createElement(
+        "p",
+        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
+        format(t, "config.hintWave1"),
+      ),
       createElement(
         "p",
         { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
@@ -594,8 +737,6 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
             format(t, "config.path", { path: configState.path }),
           )
         : null,
-      // Minimal editable preview: only a write-only API key replacement field.
-      // The full config object is round-tripped unchanged.
       createElement(
         "section",
         { style: styles.configSection },
@@ -603,8 +744,57 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
         createElement(
           "label",
           { style: styles.configField },
+          createElement("span", { style: styles.configLabel }, format(t, "config.field.mode")),
+          createElement("span", { style: styles.configHelp }, format(t, "config.help.mode")),
+          createElement(
+            "select",
+            {
+              value: llm.mode,
+              disabled: configBusy,
+              onChange: (e: { target: { value: string } }) => setLlm({ mode: e.target.value }),
+              style: styles.select,
+            },
+            createElement("option", { value: "stub" }, "stub"),
+            createElement("option", { value: "external" }, "external"),
+            createElement("option", { value: "host" }, "host"),
+          ),
+        ),
+        createElement(
+          "label",
+          { style: styles.configField },
+          createElement("span", { style: styles.configLabel }, format(t, "config.field.base_url")),
+          createElement("span", { style: styles.configHelp }, format(t, "config.help.base_url")),
+          createElement("input", {
+            type: "text",
+            value: llm.base_url,
+            disabled: configBusy,
+            onChange: (e: { target: { value: string } }) => setLlm({ base_url: e.target.value }),
+            style: mergeStyle(styles.searchInput, { flex: "unset" }),
+          }),
+        ),
+        createElement(
+          "label",
+          { style: styles.configField },
+          createElement("span", { style: styles.configLabel }, format(t, "config.field.model")),
+          createElement("span", { style: styles.configHelp }, format(t, "config.help.model")),
+          createElement("input", {
+            type: "text",
+            value: llm.model,
+            disabled: configBusy,
+            onChange: (e: { target: { value: string } }) => setLlm({ model: e.target.value }),
+            style: mergeStyle(styles.searchInput, { flex: "unset" }),
+          }),
+        ),
+        createElement(
+          "label",
+          { style: styles.configField },
           createElement("span", { style: styles.configLabel }, format(t, "config.field.api_key")),
           createElement("span", { style: styles.configHelp }, format(t, "config.help.api_key")),
+          createElement(
+            "span",
+            { style: styles.configHelp },
+            format(t, llm.has_api_key ? "config.apiKeyPresent" : "config.apiKeyMissing"),
+          ),
           createElement("input", {
             type: "password",
             value: configState.apiKeyReplacement,
@@ -613,6 +803,61 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
             onChange: (e: { target: { value: string } }) =>
               setConfigState((prev) => (prev ? { ...prev, apiKeyReplacement: e.target.value } : prev)),
             style: mergeStyle(styles.searchInput, { flex: "unset" }),
+          }),
+        ),
+      ),
+      createElement(
+        "section",
+        { style: styles.configSection },
+        createElement("h3", { style: { margin: 0 } }, format(t, "config.section.budget")),
+        createElement(
+          "label",
+          { style: styles.configField },
+          createElement("span", { style: styles.configLabel }, format(t, "config.field.refine_proposals")),
+          createElement("span", { style: styles.configHelp }, format(t, "config.help.refine_proposals")),
+          createElement("input", {
+            type: "checkbox",
+            checked: (() => {
+              const budget =
+                configState.config.budget != null &&
+                typeof configState.config.budget === "object" &&
+                !Array.isArray(configState.config.budget)
+                  ? (configState.config.budget as Record<string, unknown>)
+                  : {};
+              const consolidate =
+                budget.consolidate != null &&
+                typeof budget.consolidate === "object" &&
+                !Array.isArray(budget.consolidate)
+                  ? (budget.consolidate as Record<string, unknown>)
+                  : {};
+              return consolidate.refine_proposals === true;
+            })(),
+            disabled: configBusy,
+            onChange: (e: { target: { checked: boolean } }) => {
+              const checked = e.target.checked;
+              setConfigState((prev) => {
+                if (!prev) return prev;
+                const budget =
+                  prev.config.budget != null &&
+                  typeof prev.config.budget === "object" &&
+                  !Array.isArray(prev.config.budget)
+                    ? { ...(prev.config.budget as Record<string, unknown>) }
+                    : {};
+                const consolidate =
+                  budget.consolidate != null &&
+                  typeof budget.consolidate === "object" &&
+                  !Array.isArray(budget.consolidate)
+                    ? { ...(budget.consolidate as Record<string, unknown>) }
+                    : {};
+                return {
+                  ...prev,
+                  config: {
+                    ...prev.config,
+                    budget: { ...budget, consolidate: { ...consolidate, refine_proposals: checked } },
+                  },
+                };
+              });
+            },
           }),
         ),
       ),
@@ -640,6 +885,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     { title: "help.tabsTitle", body: "help.tabsBody" },
     { title: "help.cliTitle", body: "help.cliBody" },
     { title: "help.gateTitle", body: "help.gateBody" },
+    { title: "help.accelerateTitle", body: "help.accelerateBody" },
   ];
 
   const renderHelp = () =>
@@ -753,6 +999,30 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
       ),
     );
   };
+
+  if (authState.kind === "unavailable") {
+    return createElement(
+      "div",
+      { style: { padding: tokens.space4 } },
+      createElement(StatusMessage, {
+        t,
+        kind: "error",
+        message: authState.message,
+      }),
+      createElement(
+        "button",
+        {
+          type: "button",
+          style: styles.button,
+          onClick: () => {
+            setAuthState({ kind: "unlocking" });
+            void getAuthStatus().then(setAuthState);
+          },
+        },
+        format(t, "refresh.button"),
+      ),
+    );
+  }
 
   if (authState.kind === "locked" || authState.kind === "error") {
     return createElement(UnlockView, {

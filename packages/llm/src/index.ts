@@ -101,6 +101,51 @@ export class OpenAiCompatibleClient implements LlmClient {
   }
 }
 
+/**
+ * Optionally refine a Proposal SKILL.md body. Returns null to signal fallback to template
+ * (non-external mode, missing key, or any LLM failure).
+ */
+export async function tryRefineProposalSkill(
+  cfg: AmemConfig,
+  input: { id: string; title: string; content: string },
+): Promise<string | null> {
+  if (cfg.llm.mode !== "external") return null;
+  const key = resolveLlmApiKey(cfg);
+  if (!key) return null;
+  try {
+    const res = await fetch(`${cfg.llm.base_url}/chat/completions`, {
+      method: "POST",
+      headers: {
+        Authorization: `Bearer ${key}`,
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        model: cfg.llm.model,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Rewrite the memory into a concise coding-agent SKILL.md. Keep YAML frontmatter with name and description. Body: clear steps. No secrets. Return only the markdown file.",
+          },
+          {
+            role: "user",
+            content: `name: ${input.id}\ntitle: ${input.title}\n\n${input.content}`,
+          },
+        ],
+      }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json()) as {
+      choices?: { message?: { content?: string } }[];
+    };
+    const text = data.choices?.[0]?.message?.content?.trim();
+    if (!text || !text.includes("---")) return null;
+    return text.endsWith("\n") ? text : `${text}\n`;
+  } catch {
+    return null;
+  }
+}
+
 export function createLlmClient(cfg: AmemConfig): LlmClient {
   if (cfg.llm.mode === "stub" || cfg.llm.mode === "host") return new StubLlmClient();
   return new OpenAiCompatibleClient(cfg);

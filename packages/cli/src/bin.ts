@@ -49,7 +49,7 @@ Usage:
   amem compile --target cursor|claude-code|dsh [--out <dir>]
   amem ingest-transcript --host cursor [--dir <path>]
   amem install --host cursor|dsh
-  amem auth issue --target dsh --scopes memory:read,config:read [--ttl 8h]
+  amem auth issue --target dsh --scopes ... [--ttl 8h]   # only when dsh.admin.auth_enabled=true
   amem auth list
   amem auth revoke <token-id>
   amem rebuild-index
@@ -219,8 +219,9 @@ export function apply(ctx) {
         hostWrapper: wrapperUrl,
         ui: uiFileUrl,
         startHint: patchMerged ? "dsh web" : `dsh web --patch "${overlayPath}"`,
-        authHint:
-          "amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read",
+        authHint: loadConfig(home).dsh.admin.auth_enabled
+          ? "amem auth issue --target dsh --scopes memory:read,skill:read,proposal:read"
+          : "auth disabled by default; set [dsh.admin].auth_enabled = true to require tokens",
       },
       null,
       2,
@@ -319,7 +320,7 @@ async function main(): Promise<void> {
       console.log(JSON.stringify({ dryRun: true, promotion: cfg.promotion }));
       return;
     }
-    const r = consolidate(home, cfg);
+    const r = await consolidate(home, cfg);
     console.log(JSON.stringify(r, null, 2));
     return;
   }

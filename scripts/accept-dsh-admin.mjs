@@ -96,7 +96,8 @@ async function rpc(url, cookie, method, params, csrf) {
   const headers = { cookie };
   if (csrf) {
     headers["x-amem-csrf"] = csrf;
-    headers["sec-fetch-site"] = "same-origin";
+    // Match DSH panel: embedded workbench fetch typically sends same-site.
+    headers["sec-fetch-site"] = "same-site";
   }
   const res = await httpPost(url, "/amem-api/rpc", { id: "1", method, params }, headers);
   if (res.json && res.json.error) {

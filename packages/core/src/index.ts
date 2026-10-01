@@ -6,3 +6,4 @@ export * from "./normalize-path.js";
 export * from "./redact.js";
 export * from "./invariants.js";
 export * from "./config.js";
+export * from "./proposal-gates.js";

@@ -1,9 +1,14 @@
 import type { AmemConfig, MemoryRecord, ScopeLevel, Trust } from "@amem/core";
-import { canPromoteKind } from "@amem/core";
+import {
+  canPromoteKind,
+  isProposalEligible,
+  paths,
+  proposalGateInputFromMemory,
+} from "@amem/core";
 import { IndexStore, MemoryStore } from "@amem/store";
+import { tryRefineProposalSkill } from "@amem/llm";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { paths } from "@amem/core";
 
 export function shouldPromoteToDomain(m: MemoryRecord, cfg: AmemConfig): boolean {
   if (!canPromoteKind(m.kind)) return false;
@@ -53,11 +58,18 @@ export function promoteLevel(m: MemoryRecord, level: ScopeLevel): MemoryRecord {
   };
 }
 
-export function consolidate(home: string, cfg: AmemConfig): {
+function templateSkillMarkdown(m: MemoryRecord): string {
+  return `---\nname: ${m.id}\ndescription: ${m.title}\n---\n\n${m.content}\n`;
+}
+
+export async function consolidate(
+  home: string,
+  cfg: AmemConfig,
+): Promise<{
   promoted: string[];
   demoted: string[];
   proposals: string[];
-} {
+}> {
   const started = Date.now();
   const store = new MemoryStore(home);
   const all = store.listAll();
@@ -72,43 +84,54 @@ export function consolidate(home: string, cfg: AmemConfig): {
 
     if (m.stats.harmful >= 2 || (m.stats.lift < -0.1 && m.stats.recalled >= 5)) {
       const d = demote(m);
-      // rewrite: forget old path if level changed
       store.forget(m.id);
       store.write(d, "pipeline");
       demoted.push(m.id);
       calls += 1;
       continue;
     }
+
+    let current = m;
     if (shouldPromoteToDomain(m, cfg)) {
+      current = promoteLevel(m, "domain");
       store.forget(m.id);
-      store.write(promoteLevel(m, "domain"), "pipeline");
+      store.write(current, "pipeline");
       promoted.push(m.id);
       calls += 1;
     } else if (shouldPromoteToGlobal(m, cfg)) {
+      current = promoteLevel(m, "global");
       store.forget(m.id);
-      store.write(promoteLevel(m, "global"), "pipeline");
+      store.write(current, "pipeline");
       promoted.push(m.id);
       calls += 1;
     }
 
     if (
-      m.kind === "procedure" &&
-      (m.scope.level === "domain" || m.scope.level === "global") &&
-      (m.trust === "T2" || m.trust === "T1") &&
-      m.evidence.distinct_instances >= 3 &&
+      isProposalEligible(proposalGateInputFromMemory(current)) &&
       proposals.length < cfg.budget.consolidate.max_proposals
     ) {
-      const dir = join(paths(home).capabilities, ".proposals", m.id);
+      let skillBody = templateSkillMarkdown(current);
+      if (cfg.budget.consolidate.refine_proposals) {
+        if (calls >= cfg.budget.consolidate.max_llm_calls) {
+          // budget exhausted: still emit template proposal
+        } else {
+          calls += 1;
+          const refined = await tryRefineProposalSkill(cfg, {
+            id: current.id,
+            title: current.title,
+            content: current.content,
+          });
+          if (refined) skillBody = refined;
+        }
+      }
+      const dir = join(paths(home).capabilities, ".proposals", current.id);
       mkdirSync(dir, { recursive: true });
-      writeFileSync(
-        join(dir, "SKILL.md"),
-        `---\nname: ${m.id}\ndescription: ${m.title}\n---\n\n${m.content}\n`,
-      );
+      writeFileSync(join(dir, "SKILL.md"), skillBody);
       writeFileSync(
         join(dir, "proposal.md"),
-        `# Proposal from ${m.id}\n\nstatus: pending review\n`,
+        `# Proposal from ${current.id}\n\nstatus: pending review\n`,
       );
-      proposals.push(m.id);
+      proposals.push(current.id);
     }
   }
 

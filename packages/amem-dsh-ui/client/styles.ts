@@ -362,8 +362,9 @@ export const styles = {
     display: "flex",
     flexDirection: "column",
     gap: tokens.space1,
-    flex: "1 1 220px",
-    minWidth: 200,
+    flex: "0 0 auto",
+    width: "100%",
+    maxWidth: 560,
   } as React.CSSProperties,
 
   configLabel: {

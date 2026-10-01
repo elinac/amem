@@ -179,6 +179,79 @@ describe("/amem-api independent auth routes", () => {
     expect((json() as { ok: boolean }).ok).toBe(true);
   });
 
+  it("runs mutating RPC without sec-fetch-site when auth is disabled", async () => {
+    const handler = mountHandler(tempAmemHome());
+    const { res, status, json } = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/rpc", {
+        body: JSON.stringify({ id: "1", method: "ops.rebuild", params: {} }),
+        headers: { origin: "http://127.0.0.1:7788", host: "127.0.0.1:7788" },
+      }),
+      res,
+    );
+    expect(status()).toBe(200);
+    expect((json() as { ok: boolean }).ok).toBe(true);
+  });
+
+  /**
+   * DSH embedded panel contract: fetch from the workbench UI often arrives as
+   * Origin with an explicit port plus Sec-Fetch-Site: same-site (not same-origin).
+   * Regression for "未通过访问校验" on config save.
+   */
+  function dshPanelHeaders(extra: Record<string, string> = {}): Record<string, string> {
+    return {
+      origin: "http://127.0.0.1:7788",
+      host: "127.0.0.1:7788",
+      "sec-fetch-site": "same-site",
+      ...extra,
+    };
+  }
+
+  it("accepts DSH panel mutating headers (same-site + ported origin) when auth is disabled", async () => {
+    const handler = mountHandler(tempAmemHome());
+    const cases: Array<{ method: string; params: Record<string, unknown>; expectOk: boolean }> = [
+      { method: "config.put", params: { config: { llm: { mode: "external" } } }, expectOk: true },
+      { method: "ops.rebuild", params: {}, expectOk: true },
+      // Domain miss is fine; this case only guards against access-check 401.
+      { method: "memory.forget", params: { id: "mem_nonexistent" }, expectOk: false },
+    ];
+    for (const c of cases) {
+      const { res, status, json } = mockRes();
+      await handler(
+        mockReq("POST", "/amem-api/rpc", {
+          body: JSON.stringify({ id: "1", method: c.method, params: c.params }),
+          headers: dshPanelHeaders(),
+        }),
+        res,
+      );
+      const body = json() as { ok?: boolean; error?: { code?: string } };
+      expect(status(), c.method).not.toBe(401);
+      expect(body.error?.code, c.method).not.toBe("unauthenticated");
+      if (c.expectOk) {
+        expect(status(), c.method).toBe(200);
+        expect(body.ok, c.method).toBe(true);
+      }
+    }
+  });
+
+  it("rejects cross-site mutating RPC even when auth is disabled", async () => {
+    const handler = mountHandler(tempAmemHome());
+    const { res, status, json } = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/rpc", {
+        body: JSON.stringify({
+          id: "1",
+          method: "config.put",
+          params: { config: { llm: { mode: "external" } } },
+        }),
+        headers: dshPanelHeaders({ "sec-fetch-site": "cross-site" }),
+      }),
+      res,
+    );
+    expect(status()).toBe(401);
+    expect((json() as { ok: boolean; error: { code: string } }).error.code).toBe("unauthenticated");
+  });
+
   it("rejects RPC without a browser session", async () => {
     const home = tempAmemHome(true);
     const handler = mountHandler(home);
@@ -275,6 +348,43 @@ describe("/amem-api independent auth routes", () => {
     const body = rpc.json() as { ok: boolean; error: { code: string } };
     expect(body.ok).toBe(false);
     expect(body.error.code).toBe("unauthenticated");
+  });
+
+  it("runs config.put with DSH same-site headers when auth is enabled", async () => {
+    const home = tempAmemHome(true);
+    const { token } = new DshTokenStore(home).issue(["config:write", "config:read"], 60 * 60 * 1000);
+    const handler = mountHandler(home);
+
+    const login = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/auth/session", {
+        body: JSON.stringify({ bearer: token }),
+        headers: dshPanelHeaders(),
+      }),
+      login.res,
+    );
+    expect(login.status()).toBe(200);
+    const loginBody = login.json() as { csrfToken: string };
+    const setCookie = String(login.headers()["set-cookie"]);
+    const cookieValue = setCookie.split(";")[0]!;
+
+    const rpc = mockRes();
+    await handler(
+      mockReq("POST", "/amem-api/rpc", {
+        body: JSON.stringify({
+          id: "1",
+          method: "config.put",
+          params: { config: { llm: { mode: "external" } } },
+        }),
+        headers: dshPanelHeaders({
+          cookie: cookieValue,
+          "x-amem-csrf": loginBody.csrfToken,
+        }),
+      }),
+      rpc.res,
+    );
+    expect(rpc.status()).toBe(200);
+    expect((rpc.json() as { ok: boolean }).ok).toBe(true);
   });
 
   it("rejects cross-origin and oversized requests", async () => {

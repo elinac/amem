@@ -72,6 +72,64 @@ describe("isMutating", () => {
   });
 });
 
+describe("BrowserSessionManager local access", () => {
+  it("allows loopback origins with any port when allowlist omits the port", () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-browser-local-"));
+    homes.push(home);
+    mkdirSync(paths(home).auth, { recursive: true });
+    const store = new DshTokenStore(home);
+    const manager = new BrowserSessionManager(
+      home,
+      {
+        allowed_origins: ["http://127.0.0.1", "http://localhost"],
+        session_ttl_minutes: 480,
+        auth_failure_limit: 8,
+      },
+      store,
+    );
+
+    const ok = manager.authorizeLocal(["memory:read"], {
+      origin: "http://127.0.0.1:7788",
+      host: "127.0.0.1:7788",
+    });
+    expect(ok.ok).toBe(true);
+    if (!ok.ok) return;
+    expect(ok.scopes).toContain("memory:read");
+
+    const missingOrigin = manager.authorizeLocal([], {
+      origin: "",
+      host: "127.0.0.1:7788",
+    });
+    expect(missingOrigin.ok).toBe(true);
+
+    const remote = manager.authorizeLocal(["memory:read"], {
+      origin: "http://evil.example:7788",
+      host: "evil.example:7788",
+    });
+    expect(remote.ok).toBe(false);
+
+    const mutateNoSec = manager.authorizeLocal(["ops:rebuild"], {
+      origin: "http://127.0.0.1:7788",
+      host: "127.0.0.1:7788",
+    });
+    expect(mutateNoSec.ok).toBe(true);
+
+    const mutateSameSite = manager.authorizeLocal(["ops:rebuild"], {
+      origin: "http://127.0.0.1:7788",
+      host: "127.0.0.1:7788",
+      secFetchSite: "same-site",
+    });
+    expect(mutateSameSite.ok).toBe(true);
+
+    const mutateCross = manager.authorizeLocal(["ops:rebuild"], {
+      origin: "http://127.0.0.1:7788",
+      host: "127.0.0.1:7788",
+      secFetchSite: "cross-site",
+    });
+    expect(mutateCross.ok).toBe(false);
+  });
+});
+
 describe("BrowserSessionManager", () => {
   it("exchanges a bearer for an HttpOnly Strict cookie and csrf token", () => {
     const { store, manager } = setup();
@@ -153,6 +211,15 @@ describe("BrowserSessionManager", () => {
       mutateMeta(),
     );
     expect(sameOriginMutate.ok).toBe(true);
+
+    // DSH panel fetch often labels same-host requests as same-site.
+    const sameSiteMutate = manager.authenticate(
+      cookieValue(ok.cookie),
+      ok.csrfToken,
+      ["config:write"],
+      { origin: "http://127.0.0.1:3000", host: "127.0.0.1:3000", secFetchSite: "same-site" },
+    );
+    expect(sameSiteMutate.ok).toBe(true);
   });
 
   it("requires csrf for mutating RPC but not read RPC", () => {

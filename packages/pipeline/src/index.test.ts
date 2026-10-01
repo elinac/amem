@@ -1,10 +1,10 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultConfig, newId, type CanonicalEvent } from "@amem/core";
-import { EpisodeStore } from "@amem/store";
-import { extractSession, promoteLevel, reconcile, shouldPromoteToDomain } from "./index.js";
+import { defaultConfig, newId, paths, type CanonicalEvent } from "@amem/core";
+import { EpisodeStore, MemoryStore } from "@amem/store";
+import { consolidate, extractSession, promoteLevel, reconcile, shouldPromoteToDomain } from "./index.js";
 
 const homes: string[] = [];
 afterEach(() => {
@@ -110,5 +110,156 @@ describe("promotion gates", () => {
     expect(promoteLevel(base, "domain").scope.level).toBe("domain");
     expect(promoteLevel({ ...base, trust: "T2" }, "domain").trust).toBe("T2");
     expect(promoteLevel({ ...base, trust: "T1" }, "domain").trust).toBe("T1");
+  });
+});
+
+describe("consolidate", () => {
+  it("emits a proposal in the same pass after promoting an eligible procedure", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-consol-"));
+    homes.push(home);
+    const store = new MemoryStore(home);
+    store.write(
+      {
+        id: "mem_inst",
+        kind: "procedure",
+        title: "fix port conflicts",
+        content: "1. find process\n2. kill or change port\n3. restart",
+        applies_when: "dev server port in use",
+        scope: { level: "instance", tags: { user: "u", instances: ["a", "b", "c"] } },
+        trust: "T3",
+        status: "active",
+        evidence: {
+          episodes: ["e1", "e2", "e3"],
+          count: 3,
+          distinct_instances: 3,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 4, adopted: 2, helpful: 2, harmful: 0, lift: 0.1 },
+        validity: { depends_on: [], valid_from: "2026-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "pipeline",
+    );
+    const r = await consolidate(home, defaultConfig());
+    expect(r.promoted).toContain("mem_inst");
+    expect(r.proposals).toContain("mem_inst");
+    expect(existsSync(join(paths(home).capabilities, ".proposals", "mem_inst", "SKILL.md"))).toBe(
+      true,
+    );
+  });
+
+  it("writes proposals for already-domain procedures without requiring a second run", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-consol-dom-"));
+    homes.push(home);
+    const store = new MemoryStore(home);
+    store.write(
+      {
+        id: "mem_dom",
+        kind: "procedure",
+        title: "domain skill",
+        content: "steps",
+        applies_when: "when needed",
+        scope: { level: "domain", tags: {} },
+        trust: "T2",
+        status: "active",
+        evidence: {
+          episodes: ["e1", "e2", "e3"],
+          count: 3,
+          distinct_instances: 3,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 12, adopted: 8, helpful: 5, harmful: 0, lift: 0.2 },
+        validity: { depends_on: [], valid_from: "2026-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "pipeline",
+    );
+    const r = await consolidate(home, defaultConfig());
+    expect(r.proposals).toContain("mem_dom");
+    expect(existsSync(join(paths(home).capabilities, ".proposals", "mem_dom", "proposal.md"))).toBe(
+      true,
+    );
+  });
+
+  it("falls back to template when refine_proposals is on but LLM is stub", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-consol-refine-"));
+    homes.push(home);
+    const store = new MemoryStore(home);
+    store.write(
+      {
+        id: "mem_ref",
+        kind: "procedure",
+        title: "refine me",
+        content: "original body",
+        applies_when: "when refining",
+        scope: { level: "domain", tags: {} },
+        trust: "T2",
+        status: "active",
+        evidence: {
+          episodes: ["e1", "e2", "e3"],
+          count: 3,
+          distinct_instances: 3,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 12, adopted: 8, helpful: 5, harmful: 0, lift: 0.2 },
+        validity: { depends_on: [], valid_from: "2026-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "pipeline",
+    );
+    const cfg = defaultConfig();
+    cfg.budget.consolidate.refine_proposals = true;
+    cfg.llm.mode = "stub";
+    const r = await consolidate(home, cfg);
+    expect(r.proposals).toContain("mem_ref");
+    const { readFileSync } = await import("node:fs");
+    const body = readFileSync(
+      join(paths(home).capabilities, ".proposals", "mem_ref", "SKILL.md"),
+      "utf8",
+    );
+    expect(body).toContain("original body");
+  });
+
+  it("emits template proposal after promotion consumes the last LLM budget slot", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-consol-budget-"));
+    homes.push(home);
+    const store = new MemoryStore(home);
+    store.write(
+      {
+        id: "mem_budget",
+        kind: "procedure",
+        title: "budget edge",
+        content: "body budget",
+        applies_when: "a",
+        scope: { level: "instance", tags: { instances: ["a", "b", "c"] } },
+        trust: "T3",
+        status: "active",
+        evidence: {
+          episodes: ["e1", "e2", "e3"],
+          count: 3,
+          distinct_instances: 3,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 4, adopted: 2, helpful: 2, harmful: 0, lift: 0.1 },
+        validity: { depends_on: [], valid_from: "2026-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "pipeline",
+    );
+    const cfg = defaultConfig();
+    cfg.budget.consolidate.refine_proposals = true;
+    cfg.budget.consolidate.max_llm_calls = 1;
+    cfg.llm.mode = "stub";
+    const r = await consolidate(home, cfg);
+    expect(r.promoted).toContain("mem_budget");
+    expect(r.proposals).toContain("mem_budget");
+    const { readFileSync } = await import("node:fs");
+    expect(
+      readFileSync(join(paths(home).capabilities, ".proposals", "mem_budget", "SKILL.md"), "utf8"),
+    ).toContain("body budget");
   });
 });

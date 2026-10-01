@@ -300,8 +300,8 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
     scope: "ops:consolidate",
     mutates: true,
     parse: (p) => parseConsolidate(p),
-    run: (admin, p) => {
-      const r = admin.consolidate((p as { dryRun: boolean }).dryRun);
+    run: async (admin, p) => {
+      const r = await admin.consolidate((p as { dryRun: boolean }).dryRun);
       if (r.ok) return r.data;
       throw new RpcAdminError(r.error, r.message, r.status);
     },
@@ -370,10 +370,8 @@ function parseEnvelope(envelope: unknown): RpcRequest {
   if (!RPC_METHODS.includes(e.method as RpcMethod)) {
     throw new RpcMethodNotFoundError(e.method);
   }
-  if (!("params" in e)) {
-    throw new RpcParseError("params required");
-  }
-  return { id: e.id, method: e.method as RpcMethod, params: e.params };
+  const params = "params" in e ? e.params : {};
+  return { id: e.id, method: e.method as RpcMethod, params };
 }
 
 class RpcMethodNotFoundError extends Error {

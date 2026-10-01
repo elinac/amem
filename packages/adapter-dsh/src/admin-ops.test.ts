@@ -1,10 +1,10 @@
 // packages/adapter-dsh/src/admin-ops.test.ts
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { configToToml, defaultConfig } from "@amem/core";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { configToToml, defaultConfig, paths } from "@amem/core";
+import { MemoryStore } from "@amem/store";
 import { createAdmin } from "./admin.js";
 
 describe("admin ops", () => {
@@ -47,9 +47,9 @@ describe("admin ops", () => {
     expect(data.queued).toContain("flush-manual-");
   });
 
-  it("consolidate dryRun returns promotion", () => {
+  it("consolidate dryRun returns promotion", async () => {
     const h = setupHome();
-    const r = createAdmin(h).consolidate(true);
+    const r = await createAdmin(h).consolidate(true);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect((r.data as { dryRun: boolean }).dryRun).toBe(true);
@@ -77,5 +77,42 @@ describe("admin ops", () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(Array.isArray((r.data as { written: string[] }).written)).toBe(true);
+  });
+
+  it("applyProposal materializes a skill from a consolidate proposal", async () => {
+    const h = setupHome();
+    new MemoryStore(h).write(
+      {
+        id: "mem_apply",
+        kind: "procedure",
+        title: "apply me",
+        content: "do the thing",
+        applies_when: "always",
+        scope: { level: "domain", tags: {} },
+        trust: "T2",
+        status: "active",
+        evidence: {
+          episodes: ["e1", "e2", "e3"],
+          count: 3,
+          distinct_instances: 3,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 12, adopted: 8, helpful: 5, harmful: 0, lift: 0.2 },
+        validity: { depends_on: [], valid_from: "2026-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "pipeline",
+    );
+    const admin = createAdmin(h);
+    const c = await admin.consolidate(false);
+    expect(c.ok).toBe(true);
+    if (!c.ok) return;
+    expect((c.data as { proposals: string[] }).proposals).toContain("mem_apply");
+
+    const applied = admin.applyProposal("mem_apply", "apply-me");
+    expect(applied.ok).toBe(true);
+    if (!applied.ok) return;
+    expect(existsSync(join(paths(h).capabilities, "skills", "apply-me", "SKILL.md"))).toBe(true);
   });
 });

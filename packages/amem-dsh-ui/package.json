@@ -31,6 +31,7 @@
     "typescript": "^5.8.2",
     "@types/react": "^19.0.10",
     "esbuild": "^0.25.0",
-    "vitest": "^3.0.9"
+    "vitest": "^3.0.9",
+    "@amem/core": "workspace:*"
   }
 }

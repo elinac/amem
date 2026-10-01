@@ -1,11 +1,37 @@
 import { describe, expect, it } from "vitest";
 import {
   authStateForMode,
+  buildRpcEnvelope,
   effectivePage,
   isStale,
   nextQuery,
   rpcErrorMessage,
 } from "./api.js";
+
+import { zh, en } from "./locales.js";
+import {
+  proposalGateGaps,
+  proposalGateInputFromListRow,
+  rollupProposalGateGaps,
+} from "./proposal-gates.js";
+
+describe("enum locale keys", () => {
+  it("provides Chinese labels for stored English enum values", () => {
+    expect(zh["kind.fact"]).toBe("事实");
+    expect(zh["kind.failure"]).toBe("失败经验");
+    expect(zh["level.domain"]).toBe("领域");
+    expect(zh["trust.T3"]).toBe("T3 候选");
+    expect(zh["status.active"]).toBe("生效");
+    expect(en["kind.fact"]).toBe("Fact");
+  });
+});
+
+describe("buildRpcEnvelope", () => {
+  it("keeps params when callers pass undefined", () => {
+    const body = JSON.parse(JSON.stringify(buildRpcEnvelope("skill.list", undefined)));
+    expect(body).toEqual({ id: "1", method: "skill.list", params: {} });
+  });
+});
 
 describe("authStateForMode", () => {
   it("starts ready when panel auth is disabled", () => {
@@ -71,7 +97,7 @@ describe("isStale", () => {
 
 describe("rpcErrorMessage", () => {
   it("maps known RPC codes to user-facing text", () => {
-    expect(rpcErrorMessage({ code: "unauthenticated", message: "x" })).toContain("会话");
+    expect(rpcErrorMessage({ code: "unauthenticated", message: "x" })).toContain("访问校验");
     expect(rpcErrorMessage({ code: "permission_denied", message: "x" })).toContain("权限");
     expect(rpcErrorMessage({ code: "not_found", message: "x" })).toContain("未找到");
   });
@@ -85,5 +111,30 @@ describe("security surface", () => {
     const exported = Object.keys(await import("./api.js"));
     expect(exported).not.toContain("bearer");
     expect(exported).not.toContain("currentBearer");
+  });
+});
+
+describe("proposal gate helpers", () => {
+  it("matches consolidate eligibility rules", () => {
+    expect(
+      proposalGateGaps(
+        proposalGateInputFromListRow({
+          kind: "procedure",
+          level: "domain",
+          trust: "T2",
+          distinct_instances: 3,
+        }),
+      ),
+    ).toEqual([]);
+    const rollup = rollupProposalGateGaps([
+      proposalGateInputFromListRow({
+        kind: "fact",
+        level: "instance",
+        trust: "T3",
+        distinct_instances: 1,
+      }),
+    ]);
+    expect(rollup.kind).toBe(1);
+    expect(rollup.level).toBe(1);
   });
 });

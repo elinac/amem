@@ -374,9 +374,10 @@ pnpm amem -- recall "你的任务关键词"
 | `evidence.distinct_instances` | ≥ 3 |
 | 预算 | 单次 consolidate 的 proposal 数未超限 |
 
-而 **instance → domain** 晋升大致需要：`distinct_instances ≥ 3`、`helpful ≥ 2`、`harmful = 0`（阈值见 `amem.toml` `[promotion]`）。
+而 **instance → domain** 晋升大致需要：`distinct_instances ≥ 3`、`helpful ≥ 2`、`harmful = 0`（阈值见 `amem.toml` `[promotion]`）。  
+同一次 `consolidate` 会在晋升后立刻评估提案门槛；仅预算截断等边界情况才可能需要再跑一次。
 
-因此「完全自动」通常要 **多轮会话 + 多次 helpful**。单轮体验可用下一节的加速路径。
+因此「完全自动」通常要 **多轮会话 + 多次 helpful**. 单轮体验可用下一节的加速路径。
 
 ### 第 4 步：整合 → 生成能力候选
 

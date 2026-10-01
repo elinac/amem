@@ -65,6 +65,7 @@ export type MemoryListItem = {
   content: string;
   helpful: number;
   harmful: number;
+  distinct_instances: number;
   updated_at: string;
 };
 
@@ -95,7 +96,8 @@ export type AuthState =
   | { kind: "locked" }
   | { kind: "unlocking" }
   | { kind: "ready"; csrf: string; scopes: string[]; expiresAt: string; authEnabled: boolean }
-  | { kind: "error"; message: string };
+  | { kind: "error"; message: string }
+  | { kind: "unavailable"; message: string };
 
 export function authStateForMode(authEnabled: boolean, scopes: string[] = []): AuthState {
   return authEnabled
@@ -103,7 +105,7 @@ export function authStateForMode(authEnabled: boolean, scopes: string[] = []): A
     : { kind: "ready", csrf: "", scopes, expiresAt: "", authEnabled: false };
 }
 
-type RpcEnvelope = {
+export type RpcEnvelope = {
   id: string;
   method: string;
   params: unknown;
@@ -144,10 +146,15 @@ function api(path: string, init?: RequestInit): Promise<unknown> {
   });
 }
 
+/** Ensure RPC envelopes always include params (JSON.stringify drops undefined). */
+export function buildRpcEnvelope(method: string, params: unknown, id = "1"): RpcEnvelope {
+  return { id, method, params: params ?? {} };
+}
+
 async function rpcCall<T>(method: string, params: unknown): Promise<RpcResult<T>> {
   const csrf = currentCsrf;
   const id = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const envelope: RpcEnvelope = { id, method, params };
+  const envelope = buildRpcEnvelope(method, params, id);
   const headers: Record<string, string> = {
     accept: "application/json",
     "content-type": "application/json",
@@ -218,11 +225,15 @@ export async function getAuthStatus(): Promise<AuthState> {
       scopes?: string[];
     };
     if (body.ok !== true || typeof body.authEnabled !== "boolean") {
-      return { kind: "error", message: "无法读取面板认证模式" };
+      return { kind: "unavailable", message: "无法读取面板认证模式" };
     }
-    return authStateForMode(body.authEnabled, body.scopes ?? []);
+    const state = authStateForMode(body.authEnabled, body.scopes ?? []);
+    if (state.kind === "ready") {
+      setSession(state.csrf, state.scopes, state.expiresAt);
+    }
+    return state;
   } catch {
-    return { kind: "error", message: "无法连接到 amem 服务" };
+    return { kind: "unavailable", message: "无法连接到 amem 服务" };
   }
 }
 
@@ -338,7 +349,7 @@ export function rpcErrorMessage(error: RpcError | undefined): string {
   if (!error) return "未知错误";
   switch (error.code) {
     case "unauthenticated":
-      return "会话已过期，请重新解锁";
+      return "未通过访问校验（本机来源或会话无效）";
     case "permission_denied":
       return "权限不足";
     case "not_found":

@@ -220,15 +220,27 @@ export function TopNav(props: {
   );
 }
 
+
+export function enumLabel(
+  t: Translate,
+  prefix: "kind" | "level" | "trust" | "status",
+  value: string,
+): string {
+  const key = `${prefix}.${value}` as AmemKey;
+  const labeled = format(t, key);
+  return labeled === key ? value : labeled;
+}
+
 function FilterSelect<T extends string>(props: {
   label: string;
   value: T | undefined;
   options: readonly T[];
   counts: Record<T, number> | undefined;
   onChange: (value: T | undefined) => void;
+  labelOf: (value: T) => string;
   "aria-label"?: string;
 }): React.ReactElement {
-  const { label, value, options, counts, onChange } = props;
+  const { label, value, options, counts, onChange, labelOf } = props;
   return createElement(
     "label",
     { style: { display: "flex", alignItems: "center", gap: tokens.space1, fontSize: 13 } },
@@ -250,7 +262,7 @@ function FilterSelect<T extends string>(props: {
         return createElement(
           "option",
           { key: opt, value: opt, disabled: count === 0 },
-          `${opt} (${count})`,
+          `${labelOf(opt)} (${count})`,
         );
       }),
     ),
@@ -305,6 +317,7 @@ export function FilterBar(props: {
       value: filters.kind,
       options: MEMORY_KINDS,
       counts: facets?.kind,
+      labelOf: (v) => enumLabel(t, "kind", v),
       onChange: (v) => onFilter({ kind: v }),
       "aria-label": format(t, "filter.kind"),
     }),
@@ -313,6 +326,7 @@ export function FilterBar(props: {
       value: filters.level,
       options: SCOPE_LEVELS,
       counts: facets?.level,
+      labelOf: (v) => enumLabel(t, "level", v),
       onChange: (v) => onFilter({ level: v }),
     }),
     FilterSelect<Trust>({
@@ -320,6 +334,7 @@ export function FilterBar(props: {
       value: filters.trust,
       options: TRUSTS,
       counts: facets?.trust,
+      labelOf: (v) => enumLabel(t, "trust", v),
       onChange: (v) => onFilter({ trust: v }),
     }),
     FilterSelect<MemoryStatus>({
@@ -327,6 +342,7 @@ export function FilterBar(props: {
       value: filters.status,
       options: MEMORY_STATUSES,
       counts: facets?.status,
+      labelOf: (v) => enumLabel(t, "status", v),
       onChange: (v) => onFilter({ status: v }),
     }),
     createElement(
@@ -373,13 +389,14 @@ export function MemoryRow(props: {
   row: MemoryListItem;
   onForget: (id: string) => void;
   canForget: boolean;
+  gateGaps?: string;
 }): React.ReactElement {
-  const { t, row, onForget, canForget } = props;
+  const { t, row, onForget, canForget, gateGaps } = props;
   const meta = [
-    row.kind,
-    row.level,
-    row.trust,
-    row.status,
+    enumLabel(t, "kind", row.kind),
+    enumLabel(t, "level", row.level),
+    enumLabel(t, "trust", row.trust),
+    enumLabel(t, "status", row.status),
     format(t, "meta.helpful", { helpful: row.helpful, harmful: row.harmful }),
   ].join(" · ");
 
@@ -396,9 +413,16 @@ export function MemoryRow(props: {
         "div",
         { style: { display: "flex", alignItems: "center", gap: tokens.space2, flexWrap: "wrap" } },
         createElement("span", { style: styles.rowTitle }, row.title),
-        createElement("span", { style: styles.badge }, row.status),
+        createElement("span", { style: styles.badge }, enumLabel(t, "status", row.status)),
       ),
       createElement("div", { style: styles.rowMeta }, meta),
+      gateGaps
+        ? createElement(
+            "div",
+            { style: { ...styles.rowMeta, color: tokens.danger } },
+            `${format(t, "gate.rowPrefix")}: ${gateGaps}`,
+          )
+        : null,
       row.applies_when
         ? createElement("div", { style: styles.rowMeta }, row.applies_when)
         : null,

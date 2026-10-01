@@ -105,13 +105,29 @@ describe("rpc registry", () => {
     expect(r.error.code).toBe("not_found");
   });
 
-  it("rejects bad envelope", async () => {
+  it("accepts omitted params as empty object", async () => {
+    const { admin } = setupAdmin();
+    const skill = await dispatchRpc(
+      admin,
+      { id: "1", method: "skill.list" },
+      { ok: true, tokenId: "t", scopes: ["skill:read"] },
+    );
+    expect(skill.ok).toBe(true);
+
+    const memories = await dispatchRpc(
+      admin,
+      { id: "2", method: "memory.list" },
+      { ok: true, tokenId: "t", scopes: ["memory:read"] },
+    );
+    expect(memories.ok).toBe(true);
+  });
+
+    it("rejects bad envelope", async () => {
     const { admin } = setupAdmin();
     const cases = [
       null,
       {},
       { id: "1" },
-      { id: "1", method: "memory.list" },
       { id: "", method: "memory.list", params: {} },
       { id: "1", method: "", params: {} },
       { id: 1, method: "memory.list", params: {} },

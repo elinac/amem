@@ -29,6 +29,28 @@ export const zh = {
   "filter.level": "层级",
   "filter.trust": "信任",
   "filter.status": "状态",
+  "kind.fact": "事实",
+  "kind.case": "案例",
+  "kind.failure": "失败经验",
+  "kind.procedure": "流程",
+  "kind.tool_quirk": "工具癖性",
+  "kind.strategy": "策略",
+  "kind.criterion": "准则",
+  "kind.constraint_hint": "约束提示",
+  "kind.preference": "偏好",
+  "kind.open_question": "待解问题",
+  "level.instance": "实例",
+  "level.domain": "领域",
+  "level.global": "全局",
+  "trust.T3": "T3 候选",
+  "trust.T2": "T2 可信",
+  "trust.T1": "T1 核心",
+  "status.candidate": "候选",
+  "status.active": "生效",
+  "status.superseded": "已替代",
+  "status.conflict": "冲突",
+  "status.frozen": "冻结",
+  "status.expired": "过期",
   "filter.clear": "清除筛选",
   "list.empty": "暂无数据",
   "list.noResults": "没有匹配筛选条件的记忆",
@@ -48,6 +70,10 @@ export const zh = {
   "config.saved": "已保存：{path}",
   "config.loadFailed":
     "无法加载配置（{message}）。请执行 pnpm build && pnpm amem -- install --host dsh 后重启 dsh web。",
+  "config.hintWave1":
+    "当前可编辑 LLM 连通字段（mode / base_url / model / API Key）。召回与其它调参将分批加入；embedding / privacy 仍请先手改 amem.toml。",
+  "config.apiKeyPresent": "磁盘上已保存密钥（不回显）。留空保存表示不修改。",
+  "config.apiKeyMissing": "磁盘上尚未保存密钥。",
   "config.hintSecrets":
     "可将 API Key 直接填入下方「API Key」并保存到 amem.toml；也可留空改用环境变量名回退。",
   "config.hintReload":
@@ -131,9 +157,24 @@ export const zh = {
   "help.cliTitle": "与 CLI 对照",
   "help.cliBody":
     "健康检查=amem doctor；冲洗队列=amem flush；重建索引=amem rebuild-index；整合=amem consolidate；编译到 DSH=amem compile --target dsh（注意：CLI 默认 target 是 cursor，面板固定 dsh）。",
-  "help.gateTitle": "晋升门槛",
+  "help.gateTitle": "提案门槛",
   "help.gateBody":
-    "自动出提案通常需要 procedure + 足够多实例/helpful。本地打通可用 CLI 加速路径（手改 frontmatter），见仓库 README。",
+    "出提案需同时满足：kind=procedure；level 为 domain 或 global；trust 为 T1/T2；distinct_instances ≥ 3。同次整合会在晋升后立刻评估提案；仅在预算截断等边界情况才可能需要再点一次整合。本地演示可手改 frontmatter（见 README），勿当作生产捷径。",
+  "help.accelerateTitle": "加速路径（仅本地）",
+  "help.accelerateBody":
+    "可手改 Memory frontmatter 以满足门槛后点整合；能力入库仍须在提案 Tab 手动「应用」。",
+  "gate.kind": "需为 procedure",
+  "gate.level": "需 domain/global",
+  "gate.trust": "需 T1/T2",
+  "gate.instances": "实例数不足",
+  "gate.rowPrefix": "未达提案门槛",
+  "gate.rollupTitle": "当前库距提案的主要缺口",
+  "gate.rollupEmpty": "尚无记忆，或已全部满足门槛但还没有提案文件。",
+  "gate.rollupLine": "{label}：{count} 条",
+  "ops.consolidateToProposals": "已整合，正在打开提案…",
+  "config.field.refine_proposals": "精炼提案（LLM）",
+  "config.help.refine_proposals":
+    "开启后在整合时尝试用外部模型精炼候选 Skill；失败则回退模板正文。默认关闭。",
 } as const;
 
 export type AmemKey = keyof typeof zh;
@@ -166,6 +207,28 @@ export const en: Record<AmemKey, string> = {
   "filter.level": "Level",
   "filter.trust": "Trust",
   "filter.status": "Status",
+  "kind.fact": "Fact",
+  "kind.case": "Case",
+  "kind.failure": "Failure",
+  "kind.procedure": "Procedure",
+  "kind.tool_quirk": "Tool quirk",
+  "kind.strategy": "Strategy",
+  "kind.criterion": "Criterion",
+  "kind.constraint_hint": "Constraint hint",
+  "kind.preference": "Preference",
+  "kind.open_question": "Open question",
+  "level.instance": "Instance",
+  "level.domain": "Domain",
+  "level.global": "Global",
+  "trust.T3": "T3 candidate",
+  "trust.T2": "T2 trusted",
+  "trust.T1": "T1 core",
+  "status.candidate": "Candidate",
+  "status.active": "Active",
+  "status.superseded": "Superseded",
+  "status.conflict": "Conflict",
+  "status.frozen": "Frozen",
+  "status.expired": "Expired",
   "filter.clear": "Clear filters",
   "list.empty": "No data",
   "list.noResults": "No memories match the filters",
@@ -186,6 +249,10 @@ export const en: Record<AmemKey, string> = {
   "config.saved": "Saved: {path}",
   "config.loadFailed":
     "Failed to load config ({message}). Run pnpm build && pnpm amem -- install --host dsh, then restart dsh web.",
+  "config.hintWave1":
+    "You can edit LLM connectivity fields now (mode / base_url / model / API Key). Recall and other tunables come in later waves; edit embedding / privacy in amem.toml for now.",
+  "config.apiKeyPresent": "A key is already stored on disk (never shown). Leave blank on save to keep it.",
+  "config.apiKeyMissing": "No key is stored on disk yet.",
   "config.hintSecrets":
     "You can paste the API Key into the field below and save it in amem.toml, or leave it empty and use the env var fallback.",
   "config.hintReload":
@@ -272,7 +339,22 @@ export const en: Record<AmemKey, string> = {
   "help.cliTitle": "CLI reference",
   "help.cliBody":
     "Doctor=amem doctor; flush queue=amem flush; rebuild index=amem rebuild-index; consolidate=amem consolidate; compile to DSH=amem compile --target dsh (CLI default target is cursor; panel uses dsh).",
-  "help.gateTitle": "Promotion gate",
+  "help.gateTitle": "Proposal gates",
   "help.gateBody":
-    "Auto proposals usually need procedure plus enough instances/helpful. For local end-to-end, use CLI shortcuts (edit frontmatter); see repo README.",
+    "A Proposal needs: kind=procedure; level domain or global; trust T1/T2; distinct_instances ≥ 3. The same consolidate pass evaluates proposals after promotion; only budget cutoffs and similar edges may need a second run. Local demos may edit frontmatter (see README); that is not a production shortcut.",
+  "help.accelerateTitle": "Accelerate path (local only)",
+  "help.accelerateBody":
+    "You may hand-edit Memory frontmatter to meet gates, then consolidate; Skills still require manual Apply on the Proposals tab.",
+  "gate.kind": "need procedure",
+  "gate.level": "need domain/global",
+  "gate.trust": "need T1/T2",
+  "gate.instances": "too few instances",
+  "gate.rowPrefix": "Below proposal gates",
+  "gate.rollupTitle": "Main gaps blocking Proposals",
+  "gate.rollupEmpty": "No memories yet, or all meet gates but no proposal files exist.",
+  "gate.rollupLine": "{label}: {count}",
+  "ops.consolidateToProposals": "Consolidated — opening Proposals…",
+  "config.field.refine_proposals": "Refine proposals (LLM)",
+  "config.help.refine_proposals":
+    "When on, consolidate tries to refine candidate Skill markdown via the external model; failures fall back to the template body. Off by default.",
 };

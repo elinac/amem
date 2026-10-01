@@ -25,6 +25,25 @@ describe("DSH admin config TOML", () => {
     expect(parseSimpleToml(configToToml(cfg)).dsh.admin.auth_enabled).toBe(true);
   });
 
+  it("defaults refine_proposals off and round-trips when enabled", () => {
+    const cfg = defaultConfig("u");
+    expect(cfg.budget.consolidate.refine_proposals).toBe(false);
+    cfg.budget.consolidate.refine_proposals = true;
+    expect(parseSimpleToml(configToToml(cfg)).budget.consolidate.refine_proposals).toBe(true);
+  });
+
+  it("extracts refine_proposals via editable patch", () => {
+    const patch = extractEditableConfigPatch({
+      config: { budget: { consolidate: { refine_proposals: true } } },
+    });
+    expect("error" in patch).toBe(false);
+    if ("error" in patch) return;
+    expect(patch.budget?.consolidate?.refine_proposals).toBe(true);
+    expect(validateEditableConfigPatch(patch).ok).toBe(true);
+    const merged = mergeConfigOverlay(defaultConfig(), patch);
+    expect(merged.budget.consolidate.refine_proposals).toBe(true);
+  });
+
   it("round-trips DSH admin security settings", () => {
     const cfg = defaultConfig("u");
     cfg.dsh.admin.allowed_origins = ["http://127.0.0.1:3000"];

@@ -24,7 +24,7 @@ import {
   listSkillsData,
   materializeProposal,
 } from "@amem/compiler";
-import { consolidate, enqueueFlush, processQueue } from "@amem/pipeline";
+import { consolidate as runConsolidate, enqueueFlush, processQueue } from "@amem/pipeline";
 import type { DshAdminScope } from "./auth-store.js";
 
 export type AdminResult =
@@ -52,6 +52,7 @@ type MemoryListItem = {
   content: string;
   helpful: number;
   harmful: number;
+  distinct_instances: number;
   updated_at: string;
 };
 
@@ -113,6 +114,7 @@ function memoryToListItem(m: MemoryRecord): MemoryListItem {
     content: m.content.slice(0, MAX_PREVIEW_CHARS),
     helpful: m.stats.helpful,
     harmful: m.stats.harmful,
+    distinct_instances: m.evidence.distinct_instances,
     updated_at: m.updated_at,
   };
 }
@@ -350,10 +352,10 @@ export function createAdmin(home = defaultAmemHome()) {
       }
     },
 
-    consolidate(dryRun = false): AdminResult {
+    async consolidate(dryRun = false): Promise<AdminResult> {
       const c = cfg();
       if (dryRun) return { ok: true, data: { dryRun: true, promotion: c.promotion } };
-      const r = consolidate(home, c);
+      const r = await runConsolidate(home, c);
       return { ok: true, data: r };
     },
 

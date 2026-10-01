@@ -29,14 +29,16 @@ export interface AmemConfig {
     domain_to_global_min_instances: number;
     global_min_lift: number;
   };
-  budget: {
-    consolidate: {
-      max_llm_calls: number;
-      max_tokens: number;
-      max_proposals: number;
-      max_minutes: number;
+    budget: {
+      consolidate: {
+        max_llm_calls: number;
+        max_tokens: number;
+        max_proposals: number;
+        max_minutes: number;
+        /** When true, attempt LLM refinement of Proposal SKILL.md (default false). */
+        refine_proposals: boolean;
+      };
     };
-  };
   privacy: {
     redact_patterns: string[];
     exclude_workspaces: string[];
@@ -76,6 +78,7 @@ export function defaultConfig(userId = "local"): AmemConfig {
         max_tokens: 300000,
         max_proposals: 5,
         max_minutes: 20,
+        refine_proposals: false,
       },
     },
     privacy: { redact_patterns: [], exclude_workspaces: [] },
@@ -302,6 +305,7 @@ max_llm_calls = ${cfg.budget.consolidate.max_llm_calls}
 max_tokens = ${cfg.budget.consolidate.max_tokens}
 max_proposals = ${cfg.budget.consolidate.max_proposals}
 max_minutes = ${cfg.budget.consolidate.max_minutes}
+refine_proposals = ${cfg.budget.consolidate.refine_proposals}
 
 [privacy]
 redact_patterns = []
@@ -397,6 +401,17 @@ function copyFloatField(
   if (!(key in obj)) return undefined;
   const v = obj[key];
   if (typeof v !== "number") return badField(`${label} must be a number`);
+  return v;
+}
+
+function copyBoolField(
+  obj: Record<string, unknown>,
+  key: string,
+  label: string,
+): boolean | { error: string; message: string } | undefined {
+  if (!(key in obj)) return undefined;
+  const v = obj[key];
+  if (typeof v !== "boolean") return badField(`${label} must be a boolean`);
   return v;
 }
 
@@ -499,6 +514,13 @@ export function extractEditableConfigPatch(
         if (v != null && typeof v === "object" && "error" in v) return v;
         if (v !== undefined) part[key] = v as number;
       }
+      const refine = copyBoolField(
+        consolidate,
+        "refine_proposals",
+        "budget.consolidate.refine_proposals",
+      );
+      if (refine != null && typeof refine === "object" && "error" in refine) return refine;
+      if (refine !== undefined) part.refine_proposals = refine;
       if (Object.keys(part).length > 0) patch.budget = { consolidate: part };
     }
   }
