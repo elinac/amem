@@ -10,11 +10,22 @@ import {
   extractEditableConfigPatch,
   loadConfig,
   mergeConfigOverlay,
+  parseSimpleToml,
   preservePrivacyTomlSection,
   resolveLlmApiKey,
   validateEditableConfigPatch,
   writeAmemConfigFile,
 } from "./config.js";
+
+describe("DSH admin config TOML", () => {
+  it("round-trips DSH admin security settings", () => {
+    const cfg = defaultConfig("u");
+    cfg.dsh.admin.allowed_origins = ["http://127.0.0.1:3000"];
+    cfg.dsh.admin.session_ttl_minutes = 480;
+    cfg.dsh.admin.auth_failure_limit = 8;
+    expect(parseSimpleToml(configToToml(cfg)).dsh.admin).toEqual(cfg.dsh.admin);
+  });
+});
 
 describe("escapeTomlString", () => {
   it("escapes quotes and backslashes", () => {

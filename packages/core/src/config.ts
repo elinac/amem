@@ -41,6 +41,14 @@ export interface AmemConfig {
     redact_patterns: string[];
     exclude_workspaces: string[];
   };
+  dsh: {
+    admin: {
+      allowed_origins: string[];
+      session_ttl_minutes: number;
+      auth_failure_limit: number;
+    };
+    auto_inject: boolean;
+  };
 }
 
 export function defaultConfig(userId = "local"): AmemConfig {
@@ -70,7 +78,123 @@ export function defaultConfig(userId = "local"): AmemConfig {
       },
     },
     privacy: { redact_patterns: [], exclude_workspaces: [] },
+    dsh: {
+      admin: {
+        allowed_origins: ["http://127.0.0.1", "http://localhost"],
+        session_ttl_minutes: 480,
+        auth_failure_limit: 8,
+      },
+      auto_inject: false,
+    },
   };
+}
+
+const DEFAULT_DSH_ADMIN = defaultConfig().dsh.admin;
+
+export function unescapeTomlString(s: string): string {
+  let out = "";
+  for (let i = 0; i < s.length; i++) {
+    const c = s[i]!;
+    if (c === "\\" && i + 1 < s.length) {
+      const n = s[i + 1]!;
+      if (n === "n") {
+        out += "\n";
+        i++;
+      } else if (n === "r") {
+        out += "\r";
+        i++;
+      } else if (n === "t") {
+        out += "\t";
+        i++;
+      } else if (n === '"' || n === "\\") {
+        out += n;
+        i++;
+      } else {
+        out += c;
+      }
+    } else {
+      out += c;
+    }
+  }
+  return out;
+}
+
+export function parseTomlStringArray(raw: string): string[] {
+  const t = raw.trim();
+  if (t === "[]") return [];
+  if (!t.startsWith("[") || !t.endsWith("]")) return [];
+  const inner = t.slice(1, -1).trim();
+  if (!inner) return [];
+  const out: string[] = [];
+  let i = 0;
+  while (i < inner.length) {
+    while (i < inner.length && (inner[i] === " " || inner[i] === ",")) i++;
+    if (i >= inner.length) break;
+    if (inner[i] !== '"') break;
+    i++;
+    let escaped = "";
+    while (i < inner.length) {
+      const c = inner[i]!;
+      if (c === "\\") {
+        escaped += c;
+        i++;
+        if (i < inner.length) {
+          escaped += inner[i]!;
+          i++;
+        }
+      } else if (c === '"') {
+        i++;
+        break;
+      } else {
+        escaped += c;
+        i++;
+      }
+    }
+    out.push(unescapeTomlString(escaped));
+  }
+  return out;
+}
+
+function formatTomlStringArray(arr: string[]): string {
+  if (arr.length === 0) return "[]";
+  return `[${arr.map((s) => `"${escapeTomlString(s)}"`).join(", ")}]`;
+}
+
+export function isValidAllowedOrigin(origin: string): boolean {
+  try {
+    const u = new URL(origin);
+    if (u.protocol !== "http:" && u.protocol !== "https:") return false;
+    if (u.username || u.password) return false;
+    if (u.pathname !== "/" || u.search || u.hash) return false;
+    return origin === `${u.protocol}//${u.host}`;
+  } catch {
+    return false;
+  }
+}
+
+function clampInt(n: number, min: number, max: number, fallback: number): number {
+  if (!Number.isFinite(n) || !Number.isInteger(n)) return fallback;
+  if (n < min) return min;
+  if (n > max) return max;
+  return n;
+}
+
+function sanitizeDshConfig(dsh: AmemConfig["dsh"]): void {
+  dsh.admin.session_ttl_minutes = clampInt(
+    dsh.admin.session_ttl_minutes,
+    1,
+    1440,
+    DEFAULT_DSH_ADMIN.session_ttl_minutes,
+  );
+  dsh.admin.auth_failure_limit = clampInt(
+    dsh.admin.auth_failure_limit,
+    1,
+    100,
+    DEFAULT_DSH_ADMIN.auth_failure_limit,
+  );
+  const origins = dsh.admin.allowed_origins.filter(isValidAllowedOrigin);
+  dsh.admin.allowed_origins =
+    origins.length > 0 ? origins : [...DEFAULT_DSH_ADMIN.allowed_origins];
 }
 
 /** Minimal TOML subset reader for our known keys (no full TOML parser dependency). */
@@ -88,14 +212,18 @@ export function parseSimpleToml(text: string): AmemConfig {
     const kv = line.match(/^([a-zA-Z0-9_]+)\s*=\s*(.+)$/);
     if (!kv) continue;
     const key = kv[1]!;
-    let val: string | number | boolean = kv[2]!.trim();
-    if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-    else if (val === "true" || val === "false") val = val === "true";
-    else if (/^-?\d+(\.\d+)?$/.test(val)) val = Number(val);
-    else if (val === "[]") val = "" as unknown as string;
+    const rawVal = kv[2]!.trim();
+    let val: string | number | boolean | string[] = rawVal;
+    if (rawVal.startsWith("[") && rawVal.endsWith("]")) {
+      val = parseTomlStringArray(rawVal);
+    } else if (rawVal.startsWith('"') && rawVal.endsWith('"')) {
+      val = unescapeTomlString(rawVal.slice(1, -1));
+    } else if (rawVal === "true" || rawVal === "false") val = rawVal === "true";
+    else if (/^-?\d+(\.\d+)?$/.test(rawVal)) val = Number(rawVal);
 
     assign(cfg, section, key, val);
   }
+  sanitizeDshConfig(cfg.dsh);
   return cfg;
 }
 
@@ -113,6 +241,10 @@ function assign(cfg: AmemConfig, section: string, key: string, val: unknown): vo
   else if (section === "privacy") {
     if (key === "redact_patterns" || key === "exclude_workspaces") return;
     set(cfg.privacy as unknown as Record<string, unknown>, key);
+  } else if (section === "dsh") {
+    set(cfg.dsh as unknown as Record<string, unknown>, key);
+  } else if (section === "dsh.admin") {
+    set(cfg.dsh.admin as unknown as Record<string, unknown>, key);
   }
 }
 
@@ -168,6 +300,14 @@ max_minutes = ${cfg.budget.consolidate.max_minutes}
 [privacy]
 redact_patterns = []
 exclude_workspaces = []
+
+[dsh]
+auto_inject = ${cfg.dsh.auto_inject}
+
+[dsh.admin]
+allowed_origins = ${formatTomlStringArray(cfg.dsh.admin.allowed_origins)}
+session_ttl_minutes = ${cfg.dsh.admin.session_ttl_minutes}
+auth_failure_limit = ${cfg.dsh.admin.auth_failure_limit}
 `;
 }
 
