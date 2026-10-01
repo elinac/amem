@@ -1,524 +1,623 @@
 /**
- * Browser panel source — bundled into lazy-CJS by scripts/build-client.mjs.
- * Uses createElement so tsc of host stays independent of this file.
- * Copy follows DSH locale: register zh/en, read framework-injected `t` seat.
+ * amem DSH workbench panel.
+ *
+ * Refactored into page-level composition over:
+ * - api.ts     (auth + RPC client)
+ * - styles.ts  (design tokens + shared style objects)
+ * - components.ts (UnlockView, SideNav, FilterBar, MemoryRow, Pagination, ...)
  */
-import { createElement, useCallback, useEffect, useState } from "react";
+import {
+  createElement,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import {
+  auth,
+  login,
+  logout,
+  refreshCsrf,
+  rpc,
+  type AuthState,
+  type ListMemoryFilters,
+  type MemoryListResult,
+  type RpcResult,
+  effectivePage,
+  isStale,
+  nextQuery,
+  rpcErrorMessage,
+} from "./api.js";
+import {
+  EmptyState,
+  FilterBar,
+  MemoryRow,
+  Pagination,
+  SideNav,
+  SkeletonList,
+  StatusMessage,
+  TopNav,
+  UnlockView,
+  format,
+  mergeStyle,
+  type Translate,
+} from "./components.js";
 import { NS, en, zh, type AmemKey } from "./locales.js";
+import { styles, tokens } from "./styles.js";
 
 const PANEL_ID = "amem";
 
-type Tab = "memories" | "skills" | "proposals" | "ops" | "config" | "help";
-type ListTab = "memories" | "skills" | "proposals";
+type Tab =
+  | "memories"
+  | "skills"
+  | "proposals"
+  | "review"
+  | "ops"
+  | "config"
+  | "help";
 
-function isListTab(t: Tab): t is ListTab {
-  return t === "memories" || t === "skills" || t === "proposals";
-}
-
-type AmemConfigState = {
-  identity: { user_id: string };
-  llm: { base_url: string; model: string; api_key: string; api_key_env: string; mode: string };
-  embedding: { enabled: boolean; base_url: string; model: string; dim: number };
-  recall: { budget_tokens: number; l0_items: number; l1_items: number };
-  promotion: {
-    instance_to_domain_min_instances: number;
-    domain_to_global_min_domains: number;
-    domain_to_global_min_instances: number;
-    global_min_lift: number;
-  };
-  budget: {
-    consolidate: {
-      max_llm_calls: number;
-      max_tokens: number;
-      max_proposals: number;
-      max_minutes: number;
-    };
-  };
-  privacy: { redact_patterns: string[]; exclude_workspaces: string[] };
-};
-
-/** DSH TranslateNS — params replace `{name}` placeholders when provided. */
-type Translate = (key: AmemKey | string, params?: Record<string, string | number>) => string;
-
-type AmemPanelProps = {
-  /** Framework-injected locale seat when registered with `locale: NS`. */
-  t?: Translate;
-};
-
-function format(t: Translate, key: AmemKey, params?: Record<string, string | number>): string {
-  const raw = t(key, params);
-  if (!params) return raw;
-  // Fallback if the seat returns the template without substituting.
-  return raw.replace(/\{(\w+)\}/g, (_, name: string) =>
-    params[name] !== null && params[name] !== undefined ? String(params[name]) : `{${name}}`,
-  );
-}
-
-async function api(path: string, init?: RequestInit): Promise<unknown> {
-  const { headers: initHeaders, ...rest } = init ?? {};
-  const res = await fetch(`/amem-api${path}`, {
-    credentials: "same-origin",
-    ...rest,
-    headers: { "content-type": "application/json", ...(initHeaders ?? {}) },
-  });
-  const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error((body as { message?: string }).message ?? res.statusText);
-  return body;
-}
+const LIST_TABS: Tab[] = ["memories", "skills", "proposals"];
 
 const fallbackTranslate: Translate = (k) => k;
 
-function AmemPanel({ t: translate }: AmemPanelProps) {
+const DEFAULT_MEM_FILTERS: ListMemoryFilters & { page: number; pageSize: 20 | 50 | 100 } = {
+  page: 1,
+  pageSize: 20,
+};
+
+function useWindowWidth(): number {
+  const [width, setWidth] = useState(
+    typeof window !== "undefined" ? window.innerWidth : 1024,
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onResize = () => setWidth(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
+  return width;
+}
+
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const id = setTimeout(() => setDebounced(value), delayMs);
+    return () => clearTimeout(id);
+  }, [value, delayMs]);
+  return debounced;
+}
+
+type AsyncListState =
+  | { kind: "idle" }
+  | { kind: "loading"; keep?: MemoryListResult }
+  | { kind: "ready"; data: MemoryListResult }
+  | { kind: "error"; message: string; keep?: MemoryListResult };
+
+function isListTab(t: Tab): boolean {
+  return LIST_TABS.includes(t);
+}
+
+type ConfigFormState = {
+  path: string | null;
+  config: unknown;
+  apiKeyReplacement: string;
+};
+
+function AmemPanel({ t: translate }: { t?: Translate }) {
   const t: Translate = translate ?? fallbackTranslate;
+  const [authState, setAuthState] = useState<AuthState>({ kind: "locked" });
   const [tab, setTab] = useState<Tab>("memories");
-  const [items, setItems] = useState<unknown[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [busy, setBusy] = useState(false);
+  const [filters, setFilters] = useState(DEFAULT_MEM_FILTERS);
+  const [searchInput, setSearchInput] = useState("");
+  const debouncedQ = useDebouncedValue(searchInput, 300);
+  const [listState, setListState] = useState<AsyncListState>({ kind: "idle" });
+  const [skills, setSkills] = useState<unknown[]>([]);
+  const [proposals, setProposals] = useState<unknown[]>([]);
+  const [tabBusy, setTabBusy] = useState(false);
+  const [tabError, setTabError] = useState<string | null>(null);
+  const [opsResult, setOpsResult] = useState<unknown | null>(null);
   const [opsBusy, setOpsBusy] = useState(false);
-  const [opsResult, setOpsResult] = useState<string | null>(null);
   const [sessionId, setSessionId] = useState("");
+  const [configState, setConfigState] = useState<ConfigFormState | null>(null);
   const [configBusy, setConfigBusy] = useState(false);
-  const [configPath, setConfigPath] = useState<string | null>(null);
-  const [config, setConfig] = useState<AmemConfigState | null>(null);
   const [configMsg, setConfigMsg] = useState<string | null>(null);
+  const sequenceRef = useRef(0);
+  const width = useWindowWidth();
+  const narrow = width < 720;
 
-  const load = useCallback(async () => {
-    if (!isListTab(tab)) return;
-    setBusy(true);
-    setError(null);
-    try {
-      if (tab === "memories") {
-        const data = (await api("/memories?limit=100")) as { items?: unknown[] };
-        setItems(data.items ?? []);
-      } else if (tab === "skills") {
-        const data = (await api("/skills")) as { items?: unknown[] };
-        setItems(data.items ?? []);
-      } else {
-        const data = (await api("/proposals")) as { items?: unknown[] };
-        setItems(data.items ?? []);
+  const handleAuthError = useCallback(
+    (err: { code: string; message: string }) => {
+      if (err.code === "unauthenticated") {
+        setAuthState({ kind: "error", message: rpcErrorMessage(err) });
       }
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      setItems([]);
-    } finally {
-      setBusy(false);
+    },
+    [],
+  );
+
+  const loadMemories = useCallback(
+    async (wanted: ListMemoryFilters & { page: number; pageSize: 20 | 50 | 100 }) => {
+      sequenceRef.current += 1;
+      const seq = sequenceRef.current;
+      setListState((prev) => ({
+        kind: "loading",
+        keep: prev.kind === "ready" ? prev.data : undefined,
+      }));
+      const result = await rpc.memory.list({
+        page: wanted.page,
+        pageSize: wanted.pageSize,
+        q: wanted.q,
+        kind: wanted.kind,
+        level: wanted.level,
+        trust: wanted.trust,
+        status: wanted.status,
+      });
+      if (isStale(seq, sequenceRef.current)) return;
+      if (!result.ok) {
+        handleAuthError(result.error);
+        setListState((prev) => ({
+          kind: "error",
+          message: rpcErrorMessage(result.error),
+          keep: prev.kind === "ready" ? prev.data : prev.kind === "loading" ? prev.keep : undefined,
+        }));
+        return;
+      }
+      const data = result.result;
+      const page = effectivePage(data.page, data.total, data.pageSize);
+      if (page !== data.page) {
+        // Page was out of range; retry on the last valid page.
+        void loadMemories({ ...wanted, page });
+        return;
+      }
+      setListState({ kind: "ready", data });
+    },
+    [handleAuthError],
+  );
+
+  // Sync debounced search into filters.
+  useEffect(() => {
+    if (debouncedQ !== (filters.q ?? "")) {
+      setFilters((f) => nextQuery(f, { q: debouncedQ }));
     }
-  }, [tab]);
+  }, [debouncedQ]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Load memory list whenever filters change.
+  useEffect(() => {
+    if (authState.kind !== "ready") return;
+    if (tab !== "memories") return;
+    void loadMemories(filters);
+  }, [filters, tab, authState.kind, loadMemories]);
+
+  const loadSkills = useCallback(async () => {
+    setTabBusy(true);
+    setTabError(null);
+    const result = await rpc.skill.list();
+    if (!result.ok) {
+      handleAuthError(result.error);
+      setTabError(rpcErrorMessage(result.error));
+    } else {
+      setSkills((result.result.items as unknown[]) ?? []);
+    }
+    setTabBusy(false);
+  }, [handleAuthError]);
+
+  const loadProposals = useCallback(async () => {
+    setTabBusy(true);
+    setTabError(null);
+    const result = await rpc.proposal.list();
+    if (!result.ok) {
+      handleAuthError(result.error);
+      setTabError(rpcErrorMessage(result.error));
+    } else {
+      setProposals((result.result.items as unknown[]) ?? []);
+    }
+    setTabBusy(false);
+  }, [handleAuthError]);
 
   useEffect(() => {
-    if (!isListTab(tab)) return;
-    void load();
-  }, [load, tab]);
+    if (authState.kind !== "ready") return;
+    if (tab === "skills") void loadSkills();
+    if (tab === "proposals") void loadProposals();
+  }, [tab, authState.kind, loadSkills, loadProposals]);
 
-  const runOps = async (path: string, init?: RequestInit): Promise<boolean> => {
-    setOpsBusy(true);
-    setError(null);
-    setOpsResult(null);
-    try {
-      const data = await api(path, init);
-      setOpsResult(JSON.stringify(data, null, 2));
-      return true;
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    } finally {
-      setOpsBusy(false);
-    }
-  };
-
-  const loadConfigTab = useCallback(async () => {
+  const loadConfig = useCallback(async () => {
+    if (authState.kind !== "ready") return;
     setConfigBusy(true);
-    setError(null);
     setConfigMsg(null);
-    try {
-      const data = (await api("/config")) as {
-        path?: string;
-        config?: AmemConfigState;
-      };
-      setConfigPath(data.path ?? null);
-      setConfig(data.config ?? null);
-    } catch (e) {
-      setConfig(null);
-      setConfigPath(null);
-      const raw = e instanceof Error ? e.message : String(e);
-      setError(format(t, "config.loadFailed", { message: raw || "unknown" }));
-    } finally {
-      setConfigBusy(false);
+    setTabError(null);
+    const result = await rpc.config.get();
+    if (!result.ok) {
+      handleAuthError(result.error);
+      setTabError(rpcErrorMessage(result.error));
+      setConfigState(null);
+    } else {
+      setConfigState({
+        path: result.result.path,
+        config: result.result.config,
+        apiKeyReplacement: "",
+      });
     }
-  }, [t]);
+    setConfigBusy(false);
+  }, [authState.kind, handleAuthError]);
 
   useEffect(() => {
-    if (tab !== "config") return;
-    void loadConfigTab();
-  }, [tab, loadConfigTab]);
+    if (tab === "config") void loadConfig();
+  }, [tab, loadConfig]);
 
-  const saveConfig = async () => {
-    if (!config) return;
+  const onUnlock = useCallback(async (token: string) => {
+    setAuthState({ kind: "unlocking" });
+    const result = await login(token);
+    setAuthState(result);
+  }, []);
+
+  const onLogout = useCallback(async () => {
+    await logout();
+    setAuthState({ kind: "locked" });
+    setListState({ kind: "idle" });
+    setSkills([]);
+    setProposals([]);
+    setConfigState(null);
+  }, []);
+
+  const onForget = useCallback(
+    async (id: string) => {
+      if (!confirm(format(t, "forget.confirm", { id }))) return;
+      const result = await rpc.memory.forget(id);
+      if (!result.ok) {
+        handleAuthError(result.error);
+        setTabError(rpcErrorMessage(result.error));
+        return;
+      }
+      void loadMemories(filters);
+    },
+    [t, filters, loadMemories, handleAuthError],
+  );
+
+  const onApplyProposal = useCallback(
+    async (id: string) => {
+      const skillName = prompt(format(t, "apply.prompt"));
+      if (!skillName) return;
+      const result = await rpc.proposal.apply(id, skillName);
+      if (!result.ok) {
+        handleAuthError(result.error);
+        setTabError(rpcErrorMessage(result.error));
+        return;
+      }
+      setTab("skills");
+    },
+    [t, handleAuthError],
+  );
+
+  const runOps = useCallback(
+    async (method: string, params: unknown) => {
+      setOpsBusy(true);
+      setTabError(null);
+      setOpsResult(null);
+      let result: RpcResult<unknown>;
+      switch (method) {
+        case "doctor":
+          result = await rpc.ops.doctor();
+          break;
+        case "flush":
+          result = await rpc.ops.flush(sessionId.trim() || undefined);
+          break;
+        case "rebuild":
+          result = await rpc.ops.rebuild();
+          break;
+        case "consolidate":
+          result = await rpc.ops.consolidate(params === true);
+          break;
+        case "compile":
+          result = await rpc.ops.compile("dsh");
+          break;
+        default:
+          result = { ok: false, error: { code: "internal", message: "unknown op" } };
+      }
+      setOpsBusy(false);
+      if (!result.ok) {
+        handleAuthError(result.error);
+        setTabError(rpcErrorMessage(result.error));
+        return;
+      }
+      setOpsResult(result.result);
+    },
+    [sessionId, handleAuthError],
+  );
+
+  const saveConfig = useCallback(async () => {
+    if (!configState) return;
     if (!confirm(format(t, "config.confirmSave"))) return;
     setConfigBusy(true);
-    setError(null);
     setConfigMsg(null);
-    try {
-      const data = (await api("/config", {
-        method: "PUT",
-        body: JSON.stringify({ config }),
-      })) as { path?: string; saved?: boolean };
-      setConfigMsg(
-        format(t, "config.saved", { path: data.path ?? configPath ?? "" }),
-      );
-      await loadConfigTab();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setConfigBusy(false);
+    setTabError(null);
+    const result = await rpc.config.put(
+      configState.config,
+      configState.apiKeyReplacement.trim() || undefined,
+    );
+    setConfigBusy(false);
+    if (!result.ok) {
+      handleAuthError(result.error);
+      setTabError(rpcErrorMessage(result.error));
+      return;
     }
-  };
+    setConfigMsg(format(t, "config.saved", { path: configState.path ?? "" }));
+    void loadConfig();
+  }, [t, configState, loadConfig, handleAuthError]);
 
-  const onRecall = async () => {
-    if (!query.trim()) return;
-    setBusy(true);
-    setError(null);
-    try {
-      const data = (await api("/recall", {
-        method: "POST",
-        body: JSON.stringify({ query }),
-      })) as { hits?: unknown[] };
-      setItems(data.hits ?? []);
-      setTab("memories");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const updateFilter = useCallback(
+    (patch: Partial<ListMemoryFilters>) => setFilters((f) => nextQuery(f, patch)),
+    [],
+  );
 
-  const onForget = async (id: string) => {
-    if (!confirm(format(t, "forget.confirm", { id }))) return;
-    setError(null);
-    try {
-      await api(`/memories/${encodeURIComponent(id)}`, { method: "DELETE" });
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  };
+  const updatePageSize = useCallback((pageSize: number) => {
+    setFilters((f) => ({ ...f, pageSize: pageSize as 20 | 50 | 100, page: 1 }));
+  }, []);
 
-  const onApply = async (id: string) => {
-    const skillName = prompt(format(t, "apply.prompt"));
-    if (!skillName) return;
-    setError(null);
-    try {
-      await api(`/proposals/${encodeURIComponent(id)}/apply`, {
-        method: "POST",
-        body: JSON.stringify({ skillName }),
+  const onSearch = useCallback((q: string) => setSearchInput(q), []);
+
+  const clearFilters = useCallback(() => {
+    setSearchInput("");
+    setFilters(DEFAULT_MEM_FILTERS);
+  }, []);
+
+  const currentData =
+    listState.kind === "ready"
+      ? listState.data
+      : listState.kind === "loading"
+        ? listState.keep
+        : listState.kind === "error"
+          ? listState.keep
+          : undefined;
+
+  const renderListItems = (
+    items: unknown[],
+    actions: (row: Record<string, unknown>) => React.ReactNode,
+  ) => {
+    if (items.length === 0) {
+      return createElement(EmptyState, {
+        t,
+        messageKey: "list.empty",
+        action: { label: "refresh.button", onClick: () => void loadMemories(filters) },
       });
-      setTab("skills");
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
     }
-  };
-
-  const tabLabel = (id: Tab): string => format(t, `tab.${id}` as AmemKey);
-
-  const configField = (
-    labelKey: AmemKey,
-    helpKey: AmemKey,
-    input: ReturnType<typeof createElement>,
-  ) =>
-    createElement(
-      "label",
-      {
-        style: {
-          display: "flex",
-          flexDirection: "column",
-          gap: 4,
-          flex: "1 1 220px",
-          minWidth: 200,
-        },
-      },
-      createElement(
-        "span",
-        { style: { fontSize: 13, fontWeight: 600 } },
-        format(t, labelKey),
-      ),
-      createElement(
-        "span",
-        { style: { fontSize: 12, opacity: 0.7, lineHeight: 1.4 } },
-        format(t, helpKey),
-      ),
-      input,
-    );
-
-  const configText = (
-    value: string,
-    onChange: (v: string) => void,
-    opts: { type?: string; placeholder?: string } = {},
-  ) =>
-    createElement("input", {
-      type: opts.type ?? "text",
-      value,
-      placeholder: opts.placeholder ?? "",
-      disabled: configBusy,
-      onChange: (e: { target: { value: string } }) => onChange(e.target.value),
-      style: { padding: 6, fontFamily: "inherit", fontSize: 13 },
-    });
-
-  const configNumber = (
-    value: number,
-    onChange: (v: number) => void,
-  ) =>
-    createElement("input", {
-      type: "number",
-      value: Number.isFinite(value) ? value : 0,
-      disabled: configBusy,
-      onChange: (e: { target: { value: string } }) => {
-        const n = Number(e.target.value);
-        onChange(Number.isFinite(n) ? n : 0);
-      },
-      style: { padding: 6, fontFamily: "inherit", fontSize: 13 },
-    });
-
-  const configSelect = (
-    value: string,
-    options: string[],
-    onChange: (v: string) => void,
-  ) =>
-    createElement(
-      "select",
-      {
-        value,
-        disabled: configBusy,
-        onChange: (e: { target: { value: string } }) => onChange(e.target.value),
-        style: { padding: 6, fontFamily: "inherit", fontSize: 13 },
-      },
-      ...options.map((opt) => createElement("option", { key: opt, value: opt }, opt)),
-    );
-
-  const configSection = (titleKey: AmemKey, ...children: ReturnType<typeof createElement>[]) =>
-    createElement(
-      "section",
-      { style: { marginBottom: 16, display: "flex", flexDirection: "column", gap: 8 } },
-      createElement("h3", { style: { margin: "0 0 4px" } }, format(t, titleKey)),
-      ...children,
-    );
-
-  const renderConfigForm = () => {
-    if (!config) return null;
-    const set = (patch: Partial<AmemConfigState>) =>
-      setConfig((prev) => (prev ? { ...prev, ...patch } : prev));
-
     return createElement(
       "div",
-      { style: { display: "flex", flexDirection: "column", gap: 12 } },
-      configSection(
-        "config.section.identity",
-        createElement(
-          "div",
-          { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          configField(
-            "config.field.user_id",
-            "config.help.user_id",
-            configText(config.identity.user_id, (v) =>
-              set({ identity: { ...config.identity, user_id: v } }),
+      { role: "feed", "aria-busy": tabBusy },
+      ...items.map((raw, i) => {
+        const row = raw as Record<string, unknown>;
+        const id = String(row.id ?? row.name ?? i);
+        const title = String(row.title ?? row.name ?? id);
+        const meta = [row.kind, row.level, row.trust, row.status]
+          .filter(Boolean)
+          .join(" · ");
+        const preview =
+          row.content != null && String(row.content).trim()
+            ? String(row.content).slice(0, 200)
+            : row.summary != null && String(row.summary).trim()
+              ? String(row.summary).slice(0, 200)
+              : "";
+        return createElement(
+          "article",
+          { key: id, style: styles.row },
+          createElement(
+            "div",
+            { style: { minWidth: 0, flex: 1 } },
+            createElement(
+              "div",
+              {
+                style: {
+                  display: "flex",
+                  alignItems: "center",
+                  gap: tokens.space2,
+                  flexWrap: "wrap",
+                },
+              },
+              createElement("span", { style: styles.rowTitle }, title),
+              row.status ? createElement("span", { style: styles.badge }, String(row.status)) : null,
             ),
+            meta ? createElement("div", { style: styles.rowMeta }, meta) : null,
+            preview
+              ? createElement("div", { style: styles.rowPreview }, preview)
+              : null,
           ),
+          actions(row),
+        );
+      }),
+    );
+  };
+
+  const renderMemories = () => {
+    if (listState.kind === "idle" || (listState.kind === "loading" && !currentData)) {
+      return createElement(SkeletonList, { count: 6 });
+    }
+    if (listState.kind === "error" && !currentData) {
+      return createElement(EmptyState, {
+        t,
+        messageKey: "list.error",
+        action: { label: "refresh.button", onClick: () => void loadMemories(filters) },
+      });
+    }
+    const data = currentData as MemoryListResult;
+    if (data.total === 0) {
+      return createElement(EmptyState, {
+        t,
+        messageKey: "list.noResults",
+        action: { label: "filter.clear", onClick: clearFilters },
+      });
+    }
+    return createElement(
+      "div",
+      null,
+      ...data.items.map((row) =>
+        createElement(MemoryRow, {
+          key: row.id,
+          t,
+          row,
+          canForget: auth.hasScope("memory:forget"),
+          onForget,
+        }),
+      ),
+      createElement(Pagination, {
+        t,
+        page: data.page,
+        pageSize: data.pageSize,
+        total: data.total,
+        onPage: (p) => setFilters((f) => ({ ...f, page: p })),
+      }),
+    );
+  };
+
+  const renderSkills = () => {
+    if (tabBusy && skills.length === 0) return createElement(SkeletonList, { count: 4 });
+    return renderListItems(skills, () => null);
+  };
+
+  const renderProposals = () => {
+    if (tabBusy && proposals.length === 0) return createElement(SkeletonList, { count: 4 });
+    return renderListItems(proposals, (row) =>
+      auth.hasScope("proposal:apply")
+        ? createElement(
+            "button",
+            {
+              type: "button",
+              onClick: () => void onApplyProposal(String(row.id)),
+              style: styles.button,
+            },
+            format(t, "apply.button"),
+          )
+        : null,
+    );
+  };
+
+  const renderReview = () =>
+    createElement(
+      "div",
+      { style: { maxWidth: 640 } },
+      createElement(
+        "p",
+        { style: { color: tokens.textMuted, lineHeight: 1.6 } },
+        format(t, "review.empty"),
+      ),
+    );
+
+  const renderOps = () =>
+    createElement(
+      "div",
+      null,
+      createElement("input", {
+        type: "text",
+        value: sessionId,
+        onChange: (e: { target: { value: string } }) => setSessionId(e.target.value),
+        placeholder: format(t, "ops.sessionPlaceholder"),
+        disabled: opsBusy,
+        style: mergeStyle(styles.searchInput, { maxWidth: 480, marginBottom: tokens.space3 }),
+      }),
+      createElement(
+        "div",
+        { style: { display: "flex", flexWrap: "wrap", gap: tokens.space2, marginBottom: tokens.space3 } },
+        createElement(
+          "button",
+          { type: "button", disabled: opsBusy, onClick: () => void runOps("doctor", undefined), style: styles.button },
+          format(t, "ops.doctor"),
+        ),
+        createElement(
+          "button",
+          { type: "button", disabled: opsBusy, onClick: () => void runOps("flush", undefined), style: styles.button },
+          format(t, "ops.flush"),
+        ),
+        createElement(
+          "button",
+          { type: "button", disabled: opsBusy, onClick: () => { if (confirm(format(t, "ops.confirmRebuild"))) void runOps("rebuild", undefined); }, style: styles.button },
+          format(t, "ops.rebuild"),
+        ),
+        createElement(
+          "button",
+          { type: "button", disabled: opsBusy, onClick: () => void runOps("consolidate", true), style: styles.button },
+          format(t, "ops.consolidateDry"),
+        ),
+        createElement(
+          "button",
+          { type: "button", disabled: opsBusy, onClick: () => { if (confirm(format(t, "ops.confirmConsolidate"))) void runOps("consolidate", false); }, style: mergeStyle(styles.button, styles.dangerButton) },
+          format(t, "ops.consolidate"),
+        ),
+        createElement(
+          "button",
+          { type: "button", disabled: opsBusy, onClick: () => { if (confirm(format(t, "ops.confirmCompile"))) void runOps("compile", undefined); }, style: styles.button },
+          format(t, "ops.compile"),
         ),
       ),
-      configSection(
-        "config.section.llm",
+      opsBusy && createElement(SkeletonList, { count: 2 }),
+      opsResult != null &&
         createElement(
-          "div",
-          { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          configField(
-            "config.field.mode",
-            "config.help.mode",
-            configSelect(config.llm.mode, ["stub", "external", "host"], (v) =>
-              set({ llm: { ...config.llm, mode: v } }),
-            ),
-          ),
-          configField(
-            "config.field.base_url",
-            "config.help.base_url",
-            configText(config.llm.base_url, (v) =>
-              set({ llm: { ...config.llm, base_url: v } }),
-            ),
-          ),
-          configField(
-            "config.field.model",
-            "config.help.model",
-            configText(config.llm.model, (v) =>
-              set({ llm: { ...config.llm, model: v } }),
-            ),
-          ),
-          configField(
-            "config.field.api_key",
-            "config.help.api_key",
-            configText(
-              config.llm.api_key ?? "",
-              (v) => set({ llm: { ...config.llm, api_key: v } }),
-              { type: "password" },
-            ),
-          ),
-          configField(
-            "config.field.api_key_env",
-            "config.help.api_key_env",
-            configText(config.llm.api_key_env, (v) =>
-              set({ llm: { ...config.llm, api_key_env: v } }),
-            ),
-          ),
+          "details",
+          { open: false, style: styles.detailsRaw },
+          createElement("summary", { style: { fontSize: 13, cursor: "pointer" } }, format(t, "ops.result")),
+          createElement("pre", { style: styles.preRaw }, JSON.stringify(opsResult, null, 2)),
+        ),
+    );
+
+  const renderConfig = () => {
+    if (!configState) return createElement(SkeletonList, { count: 3 });
+    return createElement(
+      "div",
+      null,
+      createElement(
+        "p",
+        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
+        format(t, "config.hintSecrets"),
+      ),
+      createElement(
+        "p",
+        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
+        format(t, "config.hintPrivacy"),
+      ),
+      createElement(
+        "p",
+        { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
+        format(t, "config.hintReload"),
+      ),
+      configState.path
+        ? createElement(
+            "p",
+            { style: { fontSize: 12, color: tokens.textMuted, marginBottom: tokens.space3 } },
+            format(t, "config.path", { path: configState.path }),
+          )
+        : null,
+      // Minimal editable preview: only a write-only API key replacement field.
+      // The full config object is round-tripped unchanged.
+      createElement(
+        "section",
+        { style: styles.configSection },
+        createElement("h3", { style: { margin: 0 } }, format(t, "config.section.llm")),
+        createElement(
+          "label",
+          { style: styles.configField },
+          createElement("span", { style: styles.configLabel }, format(t, "config.field.api_key")),
+          createElement("span", { style: styles.configHelp }, format(t, "config.help.api_key")),
+          createElement("input", {
+            type: "password",
+            value: configState.apiKeyReplacement,
+            placeholder: format(t, "config.apiKeyPlaceholder"),
+            disabled: configBusy,
+            onChange: (e: { target: { value: string } }) =>
+              setConfigState((prev) => (prev ? { ...prev, apiKeyReplacement: e.target.value } : prev)),
+            style: mergeStyle(styles.searchInput, { flex: "unset" }),
+          }),
         ),
       ),
-      configSection(
-        "config.section.recall",
+      configMsg ? createElement(StatusMessage, { t, kind: "success", message: configMsg }) : null,
+      createElement(
+        "div",
+        { style: { display: "flex", gap: tokens.space2, marginTop: tokens.space3 } },
         createElement(
-          "div",
-          { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          configField(
-            "config.field.budget_tokens",
-            "config.help.budget_tokens",
-            configNumber(config.recall.budget_tokens, (v) =>
-              set({ recall: { ...config.recall, budget_tokens: v } }),
-            ),
-          ),
-          configField(
-            "config.field.l0_items",
-            "config.help.l0_items",
-            configNumber(config.recall.l0_items, (v) =>
-              set({ recall: { ...config.recall, l0_items: v } }),
-            ),
-          ),
-          configField(
-            "config.field.l1_items",
-            "config.help.l1_items",
-            configNumber(config.recall.l1_items, (v) =>
-              set({ recall: { ...config.recall, l1_items: v } }),
-            ),
-          ),
+          "button",
+          { type: "button", disabled: configBusy, onClick: () => void loadConfig(), style: styles.button },
+          format(t, "config.reload"),
         ),
-      ),
-      configSection(
-        "config.section.promotion",
         createElement(
-          "div",
-          { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          configField(
-            "config.field.instance_to_domain_min_instances",
-            "config.help.instance_to_domain_min_instances",
-            configNumber(
-              config.promotion.instance_to_domain_min_instances,
-              (v) =>
-                set({
-                  promotion: {
-                    ...config.promotion,
-                    instance_to_domain_min_instances: v,
-                  },
-                }),
-            ),
-          ),
-          configField(
-            "config.field.domain_to_global_min_domains",
-            "config.help.domain_to_global_min_domains",
-            configNumber(
-              config.promotion.domain_to_global_min_domains,
-              (v) =>
-                set({
-                  promotion: {
-                    ...config.promotion,
-                    domain_to_global_min_domains: v,
-                  },
-                }),
-            ),
-          ),
-          configField(
-            "config.field.domain_to_global_min_instances",
-            "config.help.domain_to_global_min_instances",
-            configNumber(
-              config.promotion.domain_to_global_min_instances,
-              (v) =>
-                set({
-                  promotion: {
-                    ...config.promotion,
-                    domain_to_global_min_instances: v,
-                  },
-                }),
-            ),
-          ),
-          configField(
-            "config.field.global_min_lift",
-            "config.help.global_min_lift",
-            configNumber(config.promotion.global_min_lift, (v) =>
-              set({ promotion: { ...config.promotion, global_min_lift: v } }),
-            ),
-          ),
-        ),
-      ),
-      configSection(
-        "config.section.budget",
-        createElement(
-          "div",
-          { style: { display: "flex", gap: 8, flexWrap: "wrap" } },
-          configField(
-            "config.field.max_llm_calls",
-            "config.help.max_llm_calls",
-            configNumber(
-              config.budget.consolidate.max_llm_calls,
-              (v) =>
-                set({
-                  budget: {
-                    consolidate: {
-                      ...config.budget.consolidate,
-                      max_llm_calls: v,
-                    },
-                  },
-                }),
-            ),
-          ),
-          configField(
-            "config.field.max_tokens",
-            "config.help.max_tokens",
-            configNumber(
-              config.budget.consolidate.max_tokens,
-              (v) =>
-                set({
-                  budget: {
-                    consolidate: { ...config.budget.consolidate, max_tokens: v },
-                  },
-                }),
-            ),
-          ),
-          configField(
-            "config.field.max_proposals",
-            "config.help.max_proposals",
-            configNumber(
-              config.budget.consolidate.max_proposals,
-              (v) =>
-                set({
-                  budget: {
-                    consolidate: {
-                      ...config.budget.consolidate,
-                      max_proposals: v,
-                    },
-                  },
-                }),
-            ),
-          ),
-          configField(
-            "config.field.max_minutes",
-            "config.help.max_minutes",
-            configNumber(
-              config.budget.consolidate.max_minutes,
-              (v) =>
-                set({
-                  budget: {
-                    consolidate: {
-                      ...config.budget.consolidate,
-                      max_minutes: v,
-                    },
-                  },
-                }),
-            ),
-          ),
+          "button",
+          { type: "button", disabled: configBusy, onClick: () => void saveConfig(), style: mergeStyle(styles.button, styles.primaryButton) },
+          format(t, "config.save"),
         ),
       ),
     );
@@ -532,307 +631,135 @@ function AmemPanel({ t: translate }: AmemPanelProps) {
     { title: "help.gateTitle", body: "help.gateBody" },
   ];
 
-  const opsButton = (labelKey: AmemKey, onClick: () => void) =>
-    createElement(
-      "button",
-      { type: "button", disabled: opsBusy, onClick: () => void onClick() },
-      format(t, labelKey),
-    );
-
-  return createElement(
-    "div",
-    { style: { padding: 16, fontFamily: "system-ui, sans-serif", height: "100%", overflow: "auto" } },
-    createElement("h2", { style: { marginTop: 0 } }, format(t, "title")),
+  const renderHelp = () =>
     createElement(
       "div",
-      { style: { display: "flex", gap: 8, marginBottom: 12 } },
-      (["memories", "skills", "proposals", "ops", "config", "help"] as Tab[]).map((tabId) =>
+      null,
+      ...helpSections.map(({ title, body }) =>
         createElement(
-          "button",
-          {
-            key: tabId,
-            type: "button",
-            onClick: () => {
-              setError(null);
-              setTab(tabId);
-            },
-            style: {
-              fontWeight: tab === tabId ? 700 : 400,
-              padding: "4px 10px",
-            },
-          },
-          tabLabel(tabId),
+          "section",
+          { key: title, style: { marginBottom: tokens.space4 } },
+          createElement("h3", { style: { margin: `0 0 ${tokens.space2}` } }, format(t, title)),
+          createElement("p", { style: { margin: 0, lineHeight: 1.6, color: tokens.text } }, format(t, body)),
         ),
       ),
-    ),
-    tab === "memories" &&
+    );
+
+  const renderContent = () => {
+    switch (tab) {
+      case "memories":
+        return renderMemories();
+      case "skills":
+        return renderSkills();
+      case "proposals":
+        return renderProposals();
+      case "review":
+        return renderReview();
+      case "ops":
+        return renderOps();
+      case "config":
+        return renderConfig();
+      case "help":
+        return renderHelp();
+      default:
+        return null;
+    }
+  };
+
+  const renderWorkbench = () => {
+    const summaryCounts = {
+      memories: currentData?.total ?? 0,
+      conflicts: 0,
+      proposals: proposals.length,
+    };
+    return createElement(
+      "div",
+      { style: styles.panel },
       createElement(
-        "div",
-        { style: { display: "flex", gap: 8, marginBottom: 12 } },
-        createElement("input", {
-          value: query,
-          onChange: (e: { target: { value: string } }) => setQuery(e.target.value),
-          placeholder: format(t, "recall.placeholder"),
-          style: { flex: 1, padding: 6 },
-        }),
-        createElement(
-          "button",
-          { type: "button", onClick: () => void onRecall() },
-          format(t, "recall.button"),
-        ),
-        createElement(
-          "button",
-          { type: "button", onClick: () => void load() },
-          format(t, "refresh.button"),
-        ),
-      ),
-    error && createElement("p", { style: { color: "crimson" } }, error),
-    isListTab(tab) && busy && createElement("p", null, format(t, "loading")),
-    tab === "ops" &&
-      createElement(
-        "div",
-        null,
-        createElement("input", {
-          value: sessionId,
-          onChange: (e: { target: { value: string } }) => setSessionId(e.target.value),
-          placeholder: format(t, "ops.sessionPlaceholder"),
-          disabled: opsBusy,
-          style: { width: "100%", maxWidth: 480, padding: 6, marginBottom: 12, boxSizing: "border-box" },
-        }),
+        "header",
+        { style: styles.header },
+        createElement("h2", { style: styles.headerTitle }, format(t, "title")),
         createElement(
           "div",
-          { style: { display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 } },
-          opsButton("ops.doctor", () => runOps("/doctor")),
-          opsButton("ops.flush", () =>
-            runOps("/flush", {
-              method: "POST",
-              body: JSON.stringify({ sessionId: sessionId.trim() || undefined }),
-            }),
-          ),
-          opsButton("ops.rebuild", () => {
-            if (!confirm(format(t, "ops.confirmRebuild"))) return;
-            void runOps("/rebuild-index", { method: "POST", body: "{}" });
-          }),
-          opsButton("ops.consolidateDry", () =>
-            runOps("/consolidate", {
-              method: "POST",
-              body: JSON.stringify({ dryRun: true }),
-            }),
-          ),
-          opsButton("ops.consolidate", () => {
-            if (!confirm(format(t, "ops.confirmConsolidate"))) return;
-            void runOps("/consolidate", {
-              method: "POST",
-              body: JSON.stringify({ dryRun: false }),
-            });
-          }),
-          opsButton("ops.compile", () => {
-            if (!confirm(format(t, "ops.confirmCompile"))) return;
-            void runOps("/compile", {
-              method: "POST",
-              body: JSON.stringify({ target: "dsh" }),
-            });
-          }),
+          { style: styles.headerMeta },
+          format(t, "header.summary", summaryCounts),
         ),
-        createElement("p", { style: { fontSize: 12, opacity: 0.85 } }, format(t, "ops.hintProcessedZero")),
-        opsBusy && createElement("p", null, format(t, "loading")),
-        opsResult != null &&
-          createElement(
-            "div",
-            { style: { marginTop: 12 } },
-            createElement("strong", null, format(t, "ops.result")),
-            createElement(
-              "pre",
-              {
-                style: {
-                  background: "#f5f5f5",
-                  padding: 12,
-                  overflow: "auto",
-                  fontSize: 12,
-                  maxHeight: 360,
-                },
-              },
-              opsResult,
-            ),
-          ),
       ),
-    tab === "config" &&
+      narrow
+        ? createElement(TopNav, { t, activeId: tab, onChange: (id) => setTab(id as Tab) })
+        : null,
       createElement(
         "div",
-        null,
+        { style: styles.layout },
+        !narrow
+          ? createElement(SideNav, { t, activeId: tab, onChange: (id) => setTab(id as Tab) })
+          : null,
         createElement(
-          "p",
-          { style: { fontSize: 12, opacity: 0.85, marginBottom: 8 } },
-          format(t, "config.hintSecrets"),
-        ),
-        createElement(
-          "p",
-          { style: { fontSize: 12, opacity: 0.85, marginBottom: 8 } },
-          format(t, "config.hintPrivacy"),
-        ),
-        createElement(
-          "p",
-          { style: { fontSize: 12, opacity: 0.85, marginBottom: 12 } },
-          format(t, "config.hintReload"),
-        ),
-        configPath != null &&
-          createElement(
-            "p",
-            { style: { fontSize: 12, opacity: 0.7, marginBottom: 12 } },
-            format(t, "config.path", { path: configPath }),
-          ),
-        configBusy && createElement("p", null, format(t, "loading")),
-        config && renderConfigForm(),
-        configMsg != null &&
-          createElement(
-            "p",
-            { style: { color: "green", marginTop: 12 } },
-            configMsg,
-          ),
-        createElement(
-          "div",
-          { style: { display: "flex", gap: 8, marginTop: 12 } },
-          createElement(
-            "button",
-            {
-              type: "button",
-              disabled: configBusy,
-              onClick: () => void loadConfigTab(),
-            },
-            format(t, "config.reload"),
-          ),
-          createElement(
-            "button",
-            {
-              type: "button",
-              disabled: configBusy || !config,
-              onClick: () => void saveConfig(),
-            },
-            format(t, "config.save"),
-          ),
-        ),
-      ),
-    tab === "help" &&
-      createElement(
-        "div",
-        null,
-        helpSections.map(({ title, body }) =>
-          createElement(
-            "section",
-            { key: title, style: { marginBottom: 16 } },
-            createElement("h3", { style: { margin: "0 0 6px" } }, format(t, title)),
-            createElement("p", { style: { margin: 0, lineHeight: 1.5 } }, format(t, body)),
-          ),
-        ),
-      ),
-    isListTab(tab) &&
-      createElement(
-      "ul",
-      { style: { listStyle: "none", padding: 0 } },
-      items.map((raw, i) => {
-        const row = raw as Record<string, unknown>;
-        const id = String(row.id ?? row.name ?? i);
-        const title = String(row.title ?? row.name ?? id);
-        const subtitle =
-          row.applies_when != null && String(row.applies_when).trim()
-            ? String(row.applies_when)
-            : row.summary != null && String(row.summary).trim()
-              ? String(row.summary)
-              : row.description != null && String(row.description).trim()
-                ? String(row.description)
-                : "";
-        const preview =
-          row.content != null && String(row.content).trim()
-            ? String(row.content).slice(0, 200)
-            : row.summary != null && String(row.summary).trim() && subtitle !== String(row.summary)
-              ? String(row.summary).slice(0, 200)
-              : "";
-        return createElement(
-          "li",
-          {
-            key: id,
-            style: {
-              borderBottom: "1px solid #ddd",
-              padding: "8px 0",
-              display: "flex",
-              justifyContent: "space-between",
-              gap: 8,
-            },
-          },
-          createElement(
-            "div",
-            { style: { minWidth: 0, flex: 1 } },
-            createElement("strong", null, title),
+          "main",
+          { style: styles.content },
+          authState.kind === "ready" &&
             createElement(
               "div",
-              { style: { fontSize: 12, opacity: 0.75, marginTop: 2 } },
-              [
-                row.kind,
-                row.level,
-                row.trust,
-                row.status,
-                row.version,
-                row.score != null ? format(t, "meta.score", { score: String(row.score) }) : null,
-                row.helpful != null ? `helpful=${row.helpful}` : null,
-              ]
-                .filter(Boolean)
-                .join(" · "),
+              { style: { display: "flex", justifyContent: "flex-end", padding: tokens.space2 } },
+              createElement(
+                "button",
+                {
+                  type: "button",
+                  onClick: onLogout,
+                  style: mergeStyle(styles.button, styles.ghostButton, { fontSize: 12 }),
+                },
+                format(t, "unlock.logout"),
+              ),
             ),
-            subtitle
-              ? createElement(
-                  "div",
-                  { style: { fontSize: 12, marginTop: 4, lineHeight: 1.4 } },
-                  subtitle,
-                )
-              : null,
-            preview
-              ? createElement(
-                  "div",
-                  {
-                    style: {
-                      fontSize: 12,
-                      marginTop: 4,
-                      opacity: 0.85,
-                      lineHeight: 1.4,
-                      whiteSpace: "pre-wrap",
-                    },
-                  },
-                  preview,
-                )
-              : null,
-            title !== id
-              ? createElement(
-                  "div",
-                  {
-                    style: {
-                      fontSize: 11,
-                      marginTop: 4,
-                      opacity: 0.55,
-                      fontFamily: "ui-monospace, monospace",
-                    },
-                  },
-                  id,
-                )
-              : null,
-          ),
+          tabError
+            ? createElement(StatusMessage, {
+                t,
+                kind: "error",
+                message: tabError,
+              })
+            : null,
           tab === "memories" &&
-            row.id &&
-            createElement(
-              "button",
-              { type: "button", onClick: () => void onForget(String(row.id)) },
-              format(t, "forget.button"),
-            ),
-          tab === "proposals" &&
-            row.id &&
-            createElement(
-              "button",
-              { type: "button", onClick: () => void onApply(String(row.id)) },
-              format(t, "apply.button"),
-            ),
-        );
-      }),
-    ),
-  );
+            createElement(FilterBar, {
+              t,
+              filters: { ...filters, pageSize: filters.pageSize },
+              facets: currentData?.facets,
+              busy: listState.kind === "loading" || tabBusy,
+              onSearch,
+              onFilter: updateFilter,
+              onPageSize: updatePageSize,
+              onRefresh: () => void loadMemories(filters),
+              onClear: clearFilters,
+              narrow,
+            }),
+          createElement(
+            "div",
+            { style: styles.scrollArea },
+            renderContent(),
+          ),
+        ),
+      ),
+    );
+  };
+
+  if (authState.kind === "locked" || authState.kind === "error") {
+    return createElement(UnlockView, {
+      t,
+      busy: false,
+      error: authState.kind === "error" ? authState.message : null,
+      onUnlock,
+    });
+  }
+
+  if (authState.kind === "unlocking") {
+    return createElement(UnlockView, {
+      t,
+      busy: true,
+      error: null,
+      onUnlock,
+    });
+  }
+
+  return renderWorkbench();
 }
 
 function PanelIcon() {
