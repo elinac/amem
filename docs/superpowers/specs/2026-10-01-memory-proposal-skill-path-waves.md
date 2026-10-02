@@ -98,4 +98,5 @@ Ship the fix in four ordered waves, without auto-applying Proposals and without 
 - Product copy may say「能力」where the glossary says Skill; keep that mapping stable.
 - Research baseline: `docs/research/memory-proposal-skill-path.md` (partial path; CLI accept-p2 with pre-qualified Memory; DSH gap).
 - Prior grill decisions: goals A+C+D; human apply; accept scripts then later real sessions; sequence A→D→C refined to A→D1→D2→C; fix same-pass bug with residual copy; refine behind default-off flag; DSH accept + vitest; D1 light UX then D2 diagnostics; Config Panel exposes refine flag.
+- **Phase 3 update:** synthetic spool session accept is `pnpm accept:dsh-session`; live `dsh web` smoke is env-gated via `scripts/smoke-dsh-session.md`.
 - Publish to the project issue tracker with triage label `ready-for-agent` once `/setup-matt-pocock-skills` (or equivalent) provides tracker access and label vocabulary.

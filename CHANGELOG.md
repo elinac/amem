@@ -16,6 +16,7 @@
 - 原子写入 helper；SQLite WAL + FTS 增量同步；召回不再每次全量 rebuild
 - `recallAsync`：embedding.enabled 时 FTS∪向量 RRF（无向量或失败时回退 FTS）
 - 离线记忆有效性评测：合成脱敏语料 + judgment、macro P@K / 有害注入 / 冲突暴露 / 预算利用率；`pnpm eval:recall` / `eval:ab` / `eval:ablate` / `eval:signals`；冻结 `fixtures/eval/baselines/v0.json`
+- 召回解释面：score parts + decide reason（CLI / MCP / DSH `memory.recall`）；结构化 doctor（failed 队列、index drift）；DSH `conflict.*` + Review Tab；`accept:dsh-session` 与可选真 DSH smoke 钩子
 - GitHub Actions CI；Biome 配置
 - gateway-mcp：zod 参数校验与 CallTool 错误捕获
 - consolidate：`review_by` 过期 → `expired`

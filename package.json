@@ -14,6 +14,8 @@
     "accept:p2": "node scripts/accept-p2.mjs",
     "accept:dsh-admin": "node scripts/accept-dsh-admin.mjs",
     "accept:dsh-path": "node scripts/accept-dsh-path.mjs",
+    "accept:dsh-session": "node scripts/accept-dsh-session.mjs",
+    "smoke:dsh-session": "node scripts/smoke-dsh-session.mjs",
     "eval:recall": "node scripts/eval-recall.mjs",
     "eval:ab": "node scripts/eval-ab.mjs",
     "eval:ablate": "node scripts/eval-recall.mjs --ablate",
