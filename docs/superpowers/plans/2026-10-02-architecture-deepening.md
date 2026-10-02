@@ -270,7 +270,7 @@
 **验收**
 
 - [x] 晋升测：成功路径旧 path 不存在、新 path 可读、内容正确。  
-- [ ] 崩溃窗口测：写新后、删旧前中断 → 新 path 可读（可接受短暂双文件；下次 upsert/运维可清旧）。  
+- [x] 崩溃窗口测：写新后、删旧前中断 → 新 path 可读（可接受短暂双文件；下次 upsert/运维可清旧）。  
 - [x] consolidate 无「为换路径而 forget」的显式配对（forget 仍可用于人工删除）。
 
 **风险：** 并发两写同 id——现有模型已是单 worker；保持单进程假设，不引入锁（非目标）。短暂双文件优于两端皆无。
@@ -387,7 +387,8 @@ W5 LlmClient 传输       （独立）
 
 - [x] Task W4.1：`ProposalStore`；迁 write/list/apply；改 `export.ts`  
 - [x] Task W4.2：compiler 去 Proposal FS 职责；`rg "\\.proposals"` 门  
-- [ ] Task W4.3：`MemoryStore.upsert`（先写新再按旧 path 删）；consolidate 改用；崩溃窗口测（upsert/consolidate 已合入；崩溃窗口测递延阶段 1）  
+- [x] Task W4.3：`MemoryStore.upsert`（先写新再按旧 path 删）；consolidate 改用；崩溃窗口测  
+
 
 ### Wave 5
 

@@ -138,7 +138,7 @@ try {
   );
   writeFileSync(
     join(home, "queue", `flush-${sid}.json`),
-    JSON.stringify({ type: "flush", sessionId: sid }),
+    JSON.stringify({ type: "flush", sessionId: sid, at: new Date().toISOString() }),
   );
   sh(process.execPath, [bin, "worker"], { env });
   const out = sh(process.execPath, [bin, "recall", "port"], { env });

@@ -47,4 +47,5 @@
 1. ~~按方案 Wave 顺序实施；建议 W1 单独 PR（鉴权矩阵）。~~ **已按波次合入 master（阶段 0 提交序列）。**
 2. 每波对照方案 checklist + 适用不变量；DSH 相关跑既有 accept 脚本。
 3. 实施期若偏离「先写新再删旧」或漏改 `export.ts`，须重新冻结基线发起审核，不得跳过。
-4. **递延（阶段 1）：** W4.3 崩溃窗口测；W3 Panel 去重验收仍开放（本工作树未改 `amem-dsh-ui`）。
+4. ~~**递延（阶段 1）：** W4.3 崩溃窗口测~~ **已关闭（阶段 1 崩溃窗口测 + apply staging）。** W3 Panel 去重验收仍开放（本工作树未改 `amem-dsh-ui`）。
+5. 阶段 1 另增：统一 atomic write、FlushJob 契约、SQLite `user_version`、`config_version` 迁移合同。

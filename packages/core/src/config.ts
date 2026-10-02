@@ -2,7 +2,23 @@ import { readFileSync, existsSync } from "node:fs";
 import { atomicWriteText } from "./atomic-write.js";
 import { amemHome, paths } from "./paths.js";
 
+/** Current on-disk AmemConfig contract; bump when load semantics break forward compat. */
+export const CONFIG_VERSION = 1;
+
+export class ConfigVersionError extends Error {
+  readonly code = "config_version_unsupported";
+  constructor(
+    readonly found: number,
+    readonly supported: number,
+  ) {
+    super(`amem.toml config_version ${found} is newer than supported ${supported}`);
+    this.name = "ConfigVersionError";
+  }
+}
+
 export interface AmemConfig {
+  /** Schema contract version for amem.toml (missing → treated as 1). */
+  config_version: number;
   identity: { user_id: string };
   llm: {
     base_url: string;
@@ -62,6 +78,7 @@ export interface AmemConfig {
 
 export function defaultConfig(userId = "local"): AmemConfig {
   return {
+    config_version: CONFIG_VERSION,
     identity: { user_id: userId },
     llm: {
       base_url: "https://openrouter.ai/api/v1",
@@ -247,14 +264,32 @@ export function parseSimpleToml(text: string): AmemConfig {
   }
   sanitizeDshConfig(cfg.dsh);
   sanitizeRecallConfig(cfg.recall);
+  sanitizeConfigVersion(cfg);
   return cfg;
+}
+
+function sanitizeConfigVersion(cfg: AmemConfig): void {
+  if (cfg.config_version == null || !Number.isFinite(cfg.config_version)) {
+    cfg.config_version = CONFIG_VERSION;
+  }
+  const v = Math.trunc(Number(cfg.config_version));
+  if (v < 1) {
+    cfg.config_version = CONFIG_VERSION;
+    return;
+  }
+  if (v > CONFIG_VERSION) {
+    throw new ConfigVersionError(v, CONFIG_VERSION);
+  }
+  cfg.config_version = v;
 }
 
 function assign(cfg: AmemConfig, section: string, key: string, val: unknown): void {
   const set = (obj: Record<string, unknown>, k: string) => {
     if (k in obj) obj[k] = val;
   };
-  if (section === "identity") set(cfg.identity as unknown as Record<string, unknown>, key);
+  if (section === "meta") {
+    if (key === "config_version" && typeof val === "number") cfg.config_version = val;
+  } else if (section === "identity") set(cfg.identity as unknown as Record<string, unknown>, key);
   else if (section === "llm") set(cfg.llm as unknown as Record<string, unknown>, key);
   else if (section === "embedding") set(cfg.embedding as unknown as Record<string, unknown>, key);
   else if (section === "recall") set(cfg.recall as unknown as Record<string, unknown>, key);
@@ -287,6 +322,9 @@ export function escapeTomlString(s: string): string {
 
 export function configToToml(cfg: AmemConfig): string {
   return `# amem config
+[meta]
+config_version = ${cfg.config_version}
+
 [identity]
 user_id = "${escapeTomlString(cfg.identity.user_id)}"
 
@@ -732,6 +770,7 @@ function formatTomlScalar(value: TomlScalar): string {
  */
 function managedTomlEntries(cfg: AmemConfig): Record<string, Record<string, TomlScalar>> {
   return {
+    meta: { config_version: cfg.config_version },
     identity: { user_id: cfg.identity.user_id },
     llm: {
       base_url: cfg.llm.base_url,

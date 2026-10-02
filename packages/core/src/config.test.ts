@@ -442,3 +442,25 @@ exclude_workspaces = ["/tmp"]
     if (!r.ok) expect(r.error).not.toBe("internal");
   });
 });
+
+describe("config_version contract", () => {
+  it("defaults missing version to CONFIG_VERSION and writes [meta]", () => {
+    const cfg = parseSimpleToml(`[identity]\nuser_id = "u"\n`);
+    expect(cfg.config_version).toBe(1);
+    expect(configToToml(defaultConfig())).toContain("[meta]");
+    expect(configToToml(defaultConfig())).toContain("config_version = 1");
+  });
+
+  it("rejects config_version newer than supported", () => {
+    expect(() =>
+      parseSimpleToml(`[meta]\nconfig_version = 99\n\n[identity]\nuser_id = "u"\n`),
+    ).toThrow(/newer than supported/);
+  });
+
+  it("updateTomlText inserts [meta] config_version when missing", () => {
+    const disk = `[identity]\nuser_id = "u"\n`;
+    const next = updateTomlText(disk, defaultConfig("u"));
+    expect(next).toMatch(/\[meta\][\s\S]*config_version = 1/);
+    expect(next).toContain('user_id = "u"');
+  });
+});
