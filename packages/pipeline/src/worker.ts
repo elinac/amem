@@ -10,17 +10,17 @@ import {
 import { join } from "node:path";
 import { atomicWriteJson, loadConfig, paths, sanitizeId } from "@amem/core";
 import { extractSession } from "./extract.js";
+import { createFlushJob, parseFlushJob } from "./flush-job.js";
+
+export type { FlushJob } from "./flush-job.js";
+export { createFlushJob, parseFlushJob } from "./flush-job.js";
 
 export function enqueueFlush(home: string, sessionId: string): string {
   const dir = paths(home).queue;
   mkdirSync(dir, { recursive: true });
   const sid = sanitizeId(sessionId);
   const file = join(dir, `flush-${sid}-${Date.now()}.json`);
-  atomicWriteJson(file, {
-    type: "flush",
-    sessionId: sid,
-    at: new Date().toISOString(),
-  });
+  atomicWriteJson(file, createFlushJob(sid));
   return file;
 }
 
@@ -57,11 +57,9 @@ export async function processQueue(home: string): Promise<number> {
       throw e;
     }
     try {
-      const job = JSON.parse(readFileSync(claimed, "utf8")) as { type: string; sessionId: string };
-      if (job.type === "flush") {
-        await extractSession(home, sanitizeId(job.sessionId), cfg);
-        n += 1;
-      }
+      const job = parseFlushJob(JSON.parse(readFileSync(claimed, "utf8")));
+      await extractSession(home, sanitizeId(job.sessionId), cfg);
+      n += 1;
       rmSync(claimed, { force: true });
     } catch (e) {
       const detail = e instanceof Error ? (e.stack ?? e.message) : String(e);
