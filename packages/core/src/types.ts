@@ -135,6 +135,8 @@ export interface MemoryRecord {
     review_by?: string;
   };
   supersedes?: string | null;
+  /** Bidirectional conflict links (structured; content may still mention them). */
+  conflicts_with?: string[];
   created_by: string;
   updated_at: string;
 }

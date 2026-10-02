@@ -114,6 +114,9 @@ importers:
       '@amem/gateway-mcp':
         specifier: workspace:*
         version: link:../gateway-mcp
+      '@amem/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@amem/pipeline':
         specifier: workspace:*
         version: link:../pipeline
@@ -136,6 +139,9 @@ importers:
       '@amem/core':
         specifier: workspace:*
         version: link:../core
+      '@amem/store':
+        specifier: workspace:*
+        version: link:../store
     devDependencies:
       typescript:
         specifier: ^5.8.2
@@ -174,6 +180,9 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.8.0
         version: 1.30.1(zod@3.25.76)
+      zod:
+        specifier: ^3.24.2
+        version: 3.25.76
     devDependencies:
       typescript:
         specifier: ^5.8.2
@@ -219,6 +228,9 @@ importers:
       '@amem/core':
         specifier: workspace:*
         version: link:../core
+      '@amem/llm':
+        specifier: workspace:*
+        version: link:../llm
       '@amem/store':
         specifier: workspace:*
         version: link:../store

@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
 import { newId, type CanonicalEvent, type MemoryRecord } from "@amem/core";
-import { EpisodeStore, MemoryStore, IndexStore } from "./index.js";
+import { EpisodeStore, MemoryStore, IndexStore, ProposalStore, resolveConflict } from "./index.js";
 
 const homes: string[] = [];
 function tmpHome(): string {
@@ -98,5 +98,121 @@ describe("MemoryStore + Index", () => {
     const hits = idx.searchFts("port");
     expect(hits.some((h) => h.id === rec.id)).toBe(true);
     idx.close();
+  });
+
+  it("upsert writes new path before removing old on level change", () => {
+    const home = tmpHome();
+    const mem = new MemoryStore(home);
+    const base: MemoryRecord = {
+      id: "mem_move",
+      kind: "procedure",
+      title: "move",
+      content: "body",
+      applies_when: "when",
+      scope: {
+        level: "instance",
+        tags: { user: "u", domains: ["d"], instances: ["i1"] },
+      },
+      trust: "T3",
+      status: "active",
+      evidence: {
+        episodes: ["ep1"],
+        count: 1,
+        distinct_instances: 1,
+        distinct_domains: 1,
+      },
+      stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+      validity: { depends_on: [], valid_from: "2026-09-26" },
+      created_by: "test",
+      updated_at: new Date().toISOString(),
+    };
+    const oldPath = mem.write(base);
+    expect(existsSync(oldPath)).toBe(true);
+    const promoted: MemoryRecord = {
+      ...base,
+      scope: {
+        level: "domain",
+        tags: { user: "u", domains: ["d"], instances: ["i1"] },
+      },
+    };
+    const newPath = mem.upsert(promoted, "pipeline");
+    expect(newPath).not.toBe(oldPath);
+    expect(existsSync(newPath)).toBe(true);
+    expect(existsSync(oldPath)).toBe(false);
+    expect(mem.readById("mem_move")?.scope.level).toBe("domain");
+  });
+
+  it("recordRecalled bumps stats without touching updated_at, including T1", () => {
+    const home = tmpHome();
+    const mem = new MemoryStore(home);
+    const updatedAt = "2026-01-01T00:00:00.000Z";
+    const rec: MemoryRecord = {
+      id: "mem_t1",
+      kind: "procedure",
+      title: "t1",
+      content: "body",
+      applies_when: "when",
+      scope: { level: "global", tags: { user: "u" } },
+      trust: "T1",
+      status: "active",
+      evidence: { episodes: ["ep1"], count: 1, distinct_instances: 1, distinct_domains: 1 },
+      stats: { recalled: 2, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+      validity: { depends_on: [], valid_from: "2026-01-01" },
+      created_by: "test",
+      updated_at: updatedAt,
+    };
+    mem.write(rec, "human");
+    expect(mem.recordRecalled(["mem_t1", "mem_missing", "mem_t1"])).toBe(1);
+    const after = mem.readById("mem_t1");
+    expect(after?.stats.recalled).toBe(3);
+    expect(after?.updated_at).toBe(updatedAt);
+  });
+});
+
+describe("ProposalStore", () => {
+  it("rejects unsafe proposal ids and skill names", () => {
+    const home = tmpHome();
+    const ps = new ProposalStore(home);
+    expect(() => ps.writeDraft({ id: "../x", skillMd: "s", proposalMd: "p" })).toThrow();
+    ps.writeDraft({ id: "prop_ok", skillMd: "---\nname: a\n---\nbody\n", proposalMd: "p" });
+    expect(() => ps.apply("prop_ok", "../../escape")).toThrow();
+    expect(() => ps.apply("..", "skill")).toThrow();
+    expect(() => ps.readSkillMd("../prop_ok")).toThrow();
+    expect(existsSync(join(home, "capabilities", "escape"))).toBe(false);
+    const dest = ps.apply("prop_ok", "my-skill");
+    expect(dest).toBe(join(home, "capabilities", "skills", "my-skill", "SKILL.md"));
+  });
+});
+
+describe("resolveConflict", () => {
+  it("keep_left supersedes right and clears edges", () => {
+    const home = tmpHome();
+    const store = new MemoryStore(home);
+    const base = {
+      kind: "procedure" as const,
+      title: "t",
+      content: "c",
+      applies_when: "w",
+      scope: { level: "instance" as const, tags: { user: "u" } },
+      trust: "T3" as const,
+      status: "conflict" as const,
+      evidence: { episodes: ["e"], count: 1, distinct_instances: 1, distinct_domains: 1 },
+      stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+      validity: { depends_on: [] as string[], valid_from: "2026-01-01" },
+      created_by: "t",
+      updated_at: "2026-01-01T00:00:00.000Z",
+    };
+    store.write({ ...base, id: "mem_a", conflicts_with: ["mem_b"] }, "human");
+    store.write({ ...base, id: "mem_b", conflicts_with: ["mem_a"] }, "human");
+    const r = resolveConflict(home, {
+      leftId: "mem_a",
+      rightId: "mem_b",
+      action: "keep_left",
+      leftUpdatedAt: "2026-01-01T00:00:00.000Z",
+      rightUpdatedAt: "2026-01-01T00:00:00.000Z",
+    });
+    expect(r.left.status).toBe("active");
+    expect(r.right.status).toBe("superseded");
+    expect(r.left.conflicts_with ?? []).toEqual([]);
   });
 });

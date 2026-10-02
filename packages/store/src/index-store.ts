@@ -3,7 +3,22 @@ import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
 import type { MemoryRecord } from "@amem/core";
 import { paths } from "@amem/core";
-import { MemoryStore } from "./memory.js";
+import type { MemoryStore } from "./memory.js";
+
+function cosine(a: number[], b: number[]): number {
+  let dot = 0;
+  let na = 0;
+  let nb = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i]!;
+    const y = b[i]!;
+    dot += x * y;
+    na += x * x;
+    nb += y * y;
+  }
+  if (na === 0 || nb === 0) return 0;
+  return dot / (Math.sqrt(na) * Math.sqrt(nb));
+}
 
 export class IndexStore {
   private db: DatabaseSync;
@@ -12,6 +27,8 @@ export class IndexStore {
     const p = paths(home).index;
     mkdirSync(dirname(p), { recursive: true });
     this.db = new DatabaseSync(p);
+    this.db.exec(`PRAGMA journal_mode=WAL;`);
+    this.db.exec(`PRAGMA busy_timeout=5000;`);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS mem (
         id TEXT PRIMARY KEY,
@@ -49,54 +66,32 @@ export class IndexStore {
     this.db.close();
   }
 
-  rebuild(store = new MemoryStore(this.home)): number {
+  isEmpty(): boolean {
+    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM mem`).get() as { n: number };
+    return (row?.n ?? 0) === 0;
+  }
+
+  rebuild(store: MemoryStore): number {
     this.db.exec("DELETE FROM mem_tag; DELETE FROM mem_stat; DELETE FROM mem;");
     try {
       this.db.exec("DELETE FROM mem_fts;");
     } catch {
-      /* ignore */
+      this.db.exec(`DROP TABLE IF EXISTS mem_fts;`);
+      this.db.exec(
+        `CREATE VIRTUAL TABLE mem_fts USING fts5(id UNINDEXED, title, applies_when, body)`,
+      );
     }
     const rows = store.listAll();
-    const insert = this.db.prepare(
-      `INSERT INTO mem(id,kind,level,status,trust,title,applies_when,body,path,user,review_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    );
-    const tagIns = this.db.prepare(`INSERT INTO mem_tag(id,key,value) VALUES (?,?,?)`);
-    const statIns = this.db.prepare(
-      `INSERT INTO mem_stat(id,recalled,adopted,helpful,harmful,lift) VALUES (?,?,?,?,?,?)`,
-    );
-    const ftsIns = this.db.prepare(
-      `INSERT INTO mem_fts(id, title, applies_when, body) VALUES (?, ?, ?, ?)`,
-    );
     for (const m of rows) {
-      insert.run(
-        m.id,
-        m.kind,
-        m.scope.level,
-        m.status,
-        m.trust,
-        m.title,
-        m.applies_when,
-        m.content,
-        store.pathFor(m),
-        m.scope.tags.user ?? null,
-        m.validity.review_by ?? null,
-      );
-      ftsIns.run(m.id, m.title, m.applies_when, m.content);
-      for (const d of m.scope.tags.domains ?? []) tagIns.run(m.id, "domain", d);
-      for (const t of m.scope.tags.tools ?? []) tagIns.run(m.id, "tool", t);
-      if (m.scope.tags.task_type) tagIns.run(m.id, "task_type", m.scope.tags.task_type);
-      for (const i of m.scope.tags.instances ?? []) tagIns.run(m.id, "instance", i);
-      statIns.run(
-        m.id,
-        m.stats.recalled,
-        m.stats.adopted,
-        m.stats.helpful,
-        m.stats.harmful,
-        m.stats.lift,
-      );
+      this.upsertMemory(m, store.pathFor(m));
     }
     return rows.length;
+  }
+
+  ensure(store: MemoryStore): void {
+    if (!this.isEmpty()) return;
+    if (store.listAll().length === 0) return;
+    this.rebuild(store);
   }
 
   searchFts(query: string, limit = 20): { id: string; rank: number }[] {
@@ -128,9 +123,31 @@ export class IndexStore {
     }
   }
 
+  removeMemory(id: string): void {
+    this.db.prepare(`DELETE FROM mem_tag WHERE id = ?`).run(id);
+    this.db.prepare(`DELETE FROM mem_stat WHERE id = ?`).run(id);
+    this.db.prepare(`DELETE FROM mem WHERE id = ?`).run(id);
+    try {
+      this.db.prepare(`DELETE FROM mem_fts WHERE id = ?`).run(id);
+    } catch {
+      /* next ensure/rebuild repairs */
+    }
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS mem_vec (
+          id TEXT PRIMARY KEY,
+          dim INT,
+          vector TEXT
+        );
+      `);
+      this.db.prepare(`DELETE FROM mem_vec WHERE id = ?`).run(id);
+    } catch {
+      /* optional table */
+    }
+  }
+
   upsertMemory(m: MemoryRecord, filePath: string): void {
-    this.db.prepare(`DELETE FROM mem_tag WHERE id = ?`).run(m.id);
-    this.db.prepare(`DELETE FROM mem WHERE id = ?`).run(m.id);
+    this.removeMemory(m.id);
     this.db
       .prepare(
         `INSERT INTO mem(id,kind,level,status,trust,title,applies_when,body,path,user,review_by)
@@ -149,12 +166,84 @@ export class IndexStore {
         m.scope.tags.user ?? null,
         m.validity.review_by ?? null,
       );
-    // simplistic: full rebuild of fts for small corpora is ok in tests
+    this.db
+      .prepare(`INSERT INTO mem_fts(id, title, applies_when, body) VALUES (?, ?, ?, ?)`)
+      .run(m.id, m.title, m.applies_when, m.content);
+    const tagIns = this.db.prepare(`INSERT INTO mem_tag(id,key,value) VALUES (?,?,?)`);
+    for (const d of m.scope.tags.domains ?? []) tagIns.run(m.id, "domain", d);
+    for (const t of m.scope.tags.tools ?? []) tagIns.run(m.id, "tool", t);
+    if (m.scope.tags.task_type) tagIns.run(m.id, "task_type", m.scope.tags.task_type);
+    for (const i of m.scope.tags.instances ?? []) tagIns.run(m.id, "instance", i);
+    this.db
+      .prepare(
+        `INSERT INTO mem_stat(id,recalled,adopted,helpful,harmful,lift) VALUES (?,?,?,?,?,?)`,
+      )
+      .run(
+        m.id,
+        m.stats.recalled,
+        m.stats.adopted,
+        m.stats.helpful,
+        m.stats.harmful,
+        m.stats.lift,
+      );
+  }
+
+  /** Persist an embedding vector (JSON float array). No-op when empty. */
+  upsertEmbedding(id: string, vector: number[]): void {
+    if (!vector.length) return;
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS mem_vec (
+        id TEXT PRIMARY KEY,
+        dim INT,
+        vector TEXT
+      );
+    `);
+    this.db.prepare(`DELETE FROM mem_vec WHERE id = ?`).run(id);
+    this.db
+      .prepare(`INSERT INTO mem_vec(id, dim, vector) VALUES (?,?,?)`)
+      .run(id, vector.length, JSON.stringify(vector));
+  }
+
+  searchVec(query: number[], limit = 20): { id: string; score: number }[] {
+    if (!query.length) return [];
+    try {
+      this.db.exec(`
+        CREATE TABLE IF NOT EXISTS mem_vec (
+          id TEXT PRIMARY KEY,
+          dim INT,
+          vector TEXT
+        );
+      `);
+      const rows = this.db.prepare(`SELECT id, vector FROM mem_vec`).all() as {
+        id: string;
+        vector: string;
+      }[];
+      const scored: { id: string; score: number }[] = [];
+      for (const row of rows) {
+        let v: number[];
+        try {
+          v = JSON.parse(row.vector) as number[];
+        } catch {
+          continue;
+        }
+        if (v.length !== query.length) continue;
+        const score = cosine(query, v);
+        if (score > 0) scored.push({ id: row.id, score });
+      }
+      scored.sort((a, b) => b.score - a.score);
+      return scored.slice(0, limit);
+    } catch {
+      return [];
+    }
   }
 
   destroyFile(): void {
     this.close();
     const p = paths(this.home).index;
     if (existsSync(p)) unlinkSync(p);
+    for (const suffix of ["-wal", "-shm"]) {
+      const side = `${p}${suffix}`;
+      if (existsSync(side)) unlinkSync(side);
+    }
   }
 }

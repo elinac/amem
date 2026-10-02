@@ -11,6 +11,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 import { spawnSync } from "node:child_process";
 import { paths } from "@amem/core";
+import { ProposalStore } from "@amem/store";
 
 export interface ExportOptions {
   /** skill name, or "*" / "all" for every skill */
@@ -104,10 +105,8 @@ export function runExport(home: string, opts: ExportOptions): { out: string; ite
   }
 
   if (opts.proposals) {
-    const propSrc = join(paths(home).capabilities, ".proposals");
-    if (existsSync(propSrc)) {
-      const dest = join(staging, "proposals");
-      cpSync(propSrc, dest, { recursive: true });
+    const dest = join(staging, "proposals");
+    if (new ProposalStore(home).exportAll(dest)) {
       items.push("proposals/");
     }
   }

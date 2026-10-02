@@ -15,7 +15,8 @@
                     "test":  "vitest run"
                 },
     "dependencies":  {
-                         "@amem/core":  "workspace:*"
+                         "@amem/core":  "workspace:*",
+                         "@amem/store":  "workspace:*"
                      },
     "devDependencies":  {
                             "typescript":  "^5.8.2",

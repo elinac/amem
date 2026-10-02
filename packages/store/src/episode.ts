@@ -5,7 +5,6 @@ import {
   mkdirSync,
   readFileSync,
   readdirSync,
-  writeFileSync,
 } from "node:fs";
 import { dirname, join } from "node:path";
 import { stringify as yamlStringify, parse as yamlParse } from "yaml";
@@ -13,6 +12,7 @@ import {
   type CanonicalEvent,
   type EpisodeMeta,
   CanonicalEventSchema,
+  atomicWriteText,
   newId,
   paths,
   sanitizeId,
@@ -35,10 +35,15 @@ export class EpisodeStore {
   readSpool(sessionId: string): CanonicalEvent[] {
     const p = this.spoolPath(sessionId);
     if (!existsSync(p)) return [];
-    return readFileSync(p, "utf8")
-      .split(/\r?\n/)
-      .filter(Boolean)
-      .map((l) => CanonicalEventSchema.parse(JSON.parse(l)));
+    const out: CanonicalEvent[] = [];
+    for (const line of readFileSync(p, "utf8").split(/\r?\n/).filter(Boolean)) {
+      try {
+        out.push(CanonicalEventSchema.parse(JSON.parse(line)));
+      } catch {
+        /* skip corrupt spool lines */
+      }
+    }
+    return out;
   }
 
   seal(sessionId: string, opts?: Partial<EpisodeMeta>): EpisodeMeta {
@@ -51,16 +56,15 @@ export class EpisodeStore {
     const ended = events[events.length - 1]!.ts;
     const host = events[0]!.host;
     const instanceId = events.find((e) => e.workspace)?.workspace?.instance_id;
-    const ym = ended.slice(0, 7).replace("-", "/"); // 2026/09
+    const ym = ended.slice(0, 7).replace("-", "/");
     const dir = join(paths(this.home).episodes, ym);
     mkdirSync(dir, { recursive: true });
     const eventsPath = join(dir, `${episodeId}.jsonl`);
     const body = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
     const hash = createHash("sha256").update(body).digest("hex");
-    // Re-sealing unchanged spool is a no-op: retries must not litter duplicate episodes.
     const existing = this.listMetas().find((m) => m.session_id === sessionId && m.hash === hash);
     if (existing) return existing;
-    writeFileSync(eventsPath, body);
+    atomicWriteText(eventsPath, body);
     const meta: EpisodeMeta = {
       episode_id: episodeId,
       session_id: sessionId,
@@ -74,7 +78,7 @@ export class EpisodeStore {
       transcript_source: opts?.transcript_source ?? "hook",
       hash,
     };
-    writeFileSync(join(dir, `${episodeId}.meta.yaml`), yamlStringify(meta));
+    atomicWriteText(join(dir, `${episodeId}.meta.yaml`), yamlStringify(meta));
     return meta;
   }
 
