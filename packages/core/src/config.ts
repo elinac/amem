@@ -1,4 +1,5 @@
-import { readFileSync, existsSync, writeFileSync, renameSync, unlinkSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
+import { atomicWriteText } from "./atomic-write.js";
 import { amemHome, paths } from "./paths.js";
 
 export interface AmemConfig {
@@ -886,16 +887,5 @@ export function writeAmemConfigFile(home: string, cfg: AmemConfig, diskToml?: st
   const configPath = paths(home).config;
   const disk = diskToml ?? (existsSync(configPath) ? readFileSync(configPath, "utf8") : "");
   const text = updateTomlText(disk, cfg);
-  const tmp = `${configPath}.${process.pid}.${Date.now()}.tmp`;
-  try {
-    writeFileSync(tmp, text, "utf8");
-    renameSync(tmp, configPath);
-  } catch (e) {
-    try {
-      if (existsSync(tmp)) unlinkSync(tmp);
-    } catch {
-      /* ignore cleanup errors */
-    }
-    throw e;
-  }
+  atomicWriteText(configPath, text);
 }

@@ -10,7 +10,7 @@ import { dirname } from "node:path";
 
 /**
  * Crash-safe text write: temp file + fsync + rename over the destination.
- * Same recipe as config.toml / DSH token store.
+ * Single source for config, token store, queue jobs, and Markdown objects.
  */
 export function atomicWriteText(path: string, text: string): void {
   const dir = dirname(path);

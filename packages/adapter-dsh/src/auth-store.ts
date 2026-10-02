@@ -1,17 +1,7 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
-import {
-  closeSync,
-  existsSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readFileSync,
-  renameSync,
-  rmdirSync,
-  writeFileSync,
-} from "node:fs";
-import { dirname, join } from "node:path";
-import { paths } from "@amem/core";
+import { existsSync, mkdirSync, readFileSync, rmdirSync } from "node:fs";
+import { join } from "node:path";
+import { atomicWriteJson, paths } from "@amem/core";
 
 export type DshAdminScope =
   | "memory:read"
@@ -117,21 +107,6 @@ function withLock<T>(lockDir: string, fn: () => T): T {
   } finally {
     releaseLock(lockDir);
   }
-}
-
-function atomicWriteJson(path: string, data: unknown): void {
-  const text = JSON.stringify(data, null, 2);
-  const tmp = `${path}.${process.pid}.${Date.now()}.tmp`;
-  const dir = dirname(path);
-  mkdirSync(dir, { recursive: true });
-  writeFileSync(tmp, text, "utf8");
-  const fd = openSync(tmp, "r+");
-  try {
-    fsyncSync(fd);
-  } finally {
-    closeSync(fd);
-  }
-  renameSync(tmp, path);
 }
 
 export class DshTokenStore {
