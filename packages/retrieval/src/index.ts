@@ -1,5 +1,5 @@
 export { extractSituation } from "./situation.js";
-export { recall, recallAsync, buildContextPack, scoreMemory } from "./pack.js";
+export { recall, recallAsync, buildContextPack, scoreMemory, type RecallChannels } from "./pack.js";
 export {
   decideRecall,
   injectableDecisions,

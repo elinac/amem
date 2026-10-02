@@ -66,11 +66,17 @@ export function scoreMemory(
   );
 }
 
+export type RecallChannels = "fts" | "tags" | "fts+tags";
+
 export function recall(
   home: string,
   situation: Situation,
   k = 8,
+  opts?: { channels?: RecallChannels },
 ): { memory: MemoryRecord; score: number }[] {
+  const channels = opts?.channels ?? "fts+tags";
+  const useFts = channels === "fts" || channels === "fts+tags";
+  const useTags = channels === "tags" || channels === "fts+tags";
   const store = new MemoryStore(home);
   const idx = new IndexStore(home);
   try {
@@ -78,25 +84,28 @@ export function recall(
   } catch {
     /* degraded: search may return empty until next rebuild */
   }
-  const hits = idx.searchFts(situation.query, 50);
-  idx.close();
   const byId = new Map(store.listAll().map((m) => [m.id, m]));
   const scored: { memory: MemoryRecord; score: number }[] = [];
-  for (const h of hits) {
-    const m = byId.get(h.id);
-    if (!m) continue;
-    if (m.status !== "active" && m.status !== "conflict") continue;
-    const score = scoreMemory(m, situation, h.rank);
-    if (score <= -100) continue;
-    scored.push({ memory: m, score });
+  if (useFts) {
+    const hits = idx.searchFts(situation.query, 50);
+    for (const h of hits) {
+      const m = byId.get(h.id);
+      if (!m) continue;
+      if (m.status !== "active" && m.status !== "conflict") continue;
+      const score = scoreMemory(m, situation, h.rank);
+      if (score <= -100) continue;
+      scored.push({ memory: m, score });
+    }
   }
-  // also include tag overlaps not in fts
-  for (const m of byId.values()) {
-    if (scored.some((s) => s.memory.id === m.id)) continue;
-    if (m.status !== "active" && m.status !== "conflict") continue;
-    if (tagOverlap(m, situation) === 0) continue;
-    const score = scoreMemory(m, situation, null);
-    if (score > 0.15) scored.push({ memory: m, score });
+  idx.close();
+  if (useTags) {
+    for (const m of byId.values()) {
+      if (scored.some((s) => s.memory.id === m.id)) continue;
+      if (m.status !== "active" && m.status !== "conflict") continue;
+      if (tagOverlap(m, situation) === 0) continue;
+      const score = scoreMemory(m, situation, null);
+      if (score > 0.15) scored.push({ memory: m, score });
+    }
   }
   scored.sort((a, b) => {
     if (b.score !== a.score) return b.score - a.score;

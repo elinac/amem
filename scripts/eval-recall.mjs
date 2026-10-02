@@ -46,12 +46,13 @@ function loadJsonl(path) {
 }
 
 function parseArgs(argv) {
-  const out = { channel: "fts+tags", writeLatest: true, outPath: null };
+  const out = { channel: "fts+tags", writeLatest: true, outPath: null, ablate: false };
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
     if (a === "--channel") out.channel = argv[++i] ?? out.channel;
     else if (a === "--out") out.outPath = argv[++i] ?? null;
     else if (a === "--no-write") out.writeLatest = false;
+    else if (a === "--ablate") out.ablate = true;
   }
   return out;
 }
@@ -142,7 +143,7 @@ function runEval(opts = {}) {
 
     for (const j of judgments) {
       const sit = situationFor(j);
-      const hits = recall(home, sit, K);
+      const hits = recall(home, sit, K, { channels: channel });
       const retrieved = hits.map((h) => h.memory.id);
       const decisions = decideRecall(hits, "assist");
       const injectable = injectableDecisions(decisions, "assist").map((d) => d.memory.id);
@@ -211,6 +212,33 @@ function runEval(opts = {}) {
 }
 
 const args = parseArgs(process.argv.slice(2));
+
+if (args.ablate) {
+  const channels = ["fts", "tags", "fts+tags"];
+  const rows = [];
+  for (const channel of channels) {
+    const report = runEval({ channel });
+    rows.push({ channel, ...report.metrics });
+    console.log(
+      `ablate channel=${channel} P@${K}=${report.metrics.precision_at_k.toFixed(3)} R@${K}=${report.metrics.recall_at_k.toFixed(3)}`,
+    );
+  }
+  rows.push({
+    channel: "embedding",
+    skipped: true,
+    reason: "embedding.enabled remains false in Phase 2",
+  });
+  const ablationPath = join(root, "fixtures/eval/baselines/ablation-latest.json");
+  mkdirSync(dirname(ablationPath), { recursive: true });
+  writeFileSync(
+    ablationPath,
+    `${JSON.stringify({ generated_at: new Date().toISOString(), rows }, null, 2)}\n`,
+  );
+  console.log(`wrote ${ablationPath}`);
+  console.log("PASS eval-recall ablation");
+  process.exit(0);
+}
+
 const report = runEval({ channel: args.channel });
 const failures = evaluateGates(report.metrics);
 
