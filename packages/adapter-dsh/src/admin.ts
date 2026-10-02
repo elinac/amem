@@ -1,21 +1,23 @@
-import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { existsSync, readdirSync } from "node:fs";
 import {
-  amemHome as defaultAmemHome,
-  extractEditableConfigPatch,
-  isSafeId,
-  llmApiKeySource,
-  loadConfig,
-  mergeConfigOverlay,
-  newId,
-  paths,
-  resolveLlmApiKey,
-  validateEditableConfigPatch,
-  writeAmemConfigFile,
+  MEMORY_KINDS,
+  MEMORY_PAGE_SIZES,
+  MEMORY_STATUSES,
+  SCOPE_LEVELS,
+  TRUSTS,
   type MemoryKind,
+  type MemoryPageSize,
   type MemoryRecord,
   type MemoryStatus,
   type ScopeLevel,
   type Trust,
+  amemHome as defaultAmemHome,
+  applyEditableConfigPatch,
+  getSafeConfigView,
+  isSafeId,
+  loadConfig,
+  newId,
+  paths,
 } from "@amem/core";
 import { IndexStore, MemoryStore } from "@amem/store";
 import { buildContextPack, extractSituation, recall } from "@amem/retrieval";
@@ -34,7 +36,7 @@ export type AdminResult =
 
 export type ListMemoriesInput = {
   page: number;
-  pageSize: 20 | 50 | 100;
+  pageSize: MemoryPageSize;
   q?: string;
   kind?: MemoryKind;
   level?: ScopeLevel;
@@ -57,42 +59,19 @@ type MemoryListItem = {
   updated_at: string;
 };
 
-const MEMORY_KINDS: MemoryKind[] = [
-  "fact",
-  "case",
-  "failure",
-  "procedure",
-  "tool_quirk",
-  "strategy",
-  "criterion",
-  "constraint_hint",
-  "preference",
-  "open_question",
-];
-const SCOPE_LEVELS: ScopeLevel[] = ["instance", "domain", "global"];
-const TRUSTS: Trust[] = ["T3", "T2", "T1"];
-const MEMORY_STATUSES: MemoryStatus[] = [
-  "candidate",
-  "active",
-  "superseded",
-  "conflict",
-  "frozen",
-  "expired",
-];
-const ALLOWED_PAGE_SIZES: readonly number[] = [20, 50, 100];
 const MAX_PREVIEW_CHARS = 200;
 
 function isMemoryKind(v: unknown): v is MemoryKind {
-  return typeof v === "string" && MEMORY_KINDS.includes(v as MemoryKind);
+  return typeof v === "string" && (MEMORY_KINDS as readonly string[]).includes(v);
 }
 function isScopeLevel(v: unknown): v is ScopeLevel {
-  return typeof v === "string" && SCOPE_LEVELS.includes(v as ScopeLevel);
+  return typeof v === "string" && (SCOPE_LEVELS as readonly string[]).includes(v);
 }
 function isTrust(v: unknown): v is Trust {
-  return typeof v === "string" && TRUSTS.includes(v as Trust);
+  return typeof v === "string" && (TRUSTS as readonly string[]).includes(v);
 }
 function isMemoryStatus(v: unknown): v is MemoryStatus {
-  return typeof v === "string" && MEMORY_STATUSES.includes(v as MemoryStatus);
+  return typeof v === "string" && (MEMORY_STATUSES as readonly string[]).includes(v);
 }
 
 function matchesQuery(m: MemoryRecord, q?: string): boolean {
@@ -145,7 +124,7 @@ export function createAdmin(home = defaultAmemHome()) {
       if (typeof opts.page !== "undefined" && (typeof opts.page !== "number" || !Number.isFinite(opts.page) || opts.page < 1 || Math.floor(opts.page) !== opts.page)) {
         return { ok: false, error: "bad_request", message: "page must be a positive integer", status: 400 };
       }
-      if (typeof opts.pageSize !== "undefined" && !ALLOWED_PAGE_SIZES.includes(opts.pageSize)) {
+      if (typeof opts.pageSize !== "undefined" && !(MEMORY_PAGE_SIZES as readonly number[]).includes(opts.pageSize)) {
         return { ok: false, error: "bad_request", message: "pageSize must be 20, 50 or 100", status: 400 };
       }
       if (opts.kind != null && !isMemoryKind(opts.kind)) {
@@ -161,7 +140,7 @@ export function createAdmin(home = defaultAmemHome()) {
         return { ok: false, error: "bad_request", message: "invalid status", status: 400 };
       }
 
-      const pageSize: 20 | 50 | 100 = opts.pageSize ?? 20;
+      const pageSize: MemoryPageSize = opts.pageSize ?? 20;
       const page = opts.page ?? 1;
 
       const all = new MemoryStore(home).listAll();
@@ -231,6 +210,7 @@ export function createAdmin(home = defaultAmemHome()) {
         cfg: c,
         situation: sit,
         sessionId: "admin",
+        hits,
       });
       return {
         ok: true,
@@ -384,64 +364,17 @@ export function createAdmin(home = defaultAmemHome()) {
     },
 
     getConfig(): AdminResult {
-      const configPath = paths(home).config;
-      const raw = loadConfig(home);
-      const { api_key: _apiKey, ...llmRest } = raw.llm;
-      const safeConfig = {
-        ...raw,
-        llm: {
-          ...llmRest,
-          has_api_key: !!resolveLlmApiKey(raw),
-          // Where the effective key comes from; never the key itself.
-          api_key_source: llmApiKeySource(raw),
-        },
-      };
-      return {
-        ok: true,
-        data: { path: configPath, config: safeConfig },
-      };
+      const view = getSafeConfigView(home);
+      return { ok: true, data: view.data };
     },
 
     putConfig(body: unknown): AdminResult {
-      try {
-        const extracted = extractEditableConfigPatch(body);
-        if ("error" in extracted) {
-          return { ok: false, error: extracted.error, message: extracted.message, status: 400 };
-        }
-        const validated = validateEditableConfigPatch(extracted);
-        if (!validated.ok) {
-          return {
-            ok: false,
-            error: validated.error,
-            message: validated.message,
-            status: 400,
-          };
-        }
-        const base = loadConfig(home);
-        const merged = mergeConfigOverlay(base, extracted);
-        merged.embedding = base.embedding;
-        merged.privacy = base.privacy;
-
-        const apiKeyReplacement =
-          body != null && typeof body === "object" && "api_key_replacement" in body
-            ? String((body as Record<string, unknown>).api_key_replacement ?? "")
-            : "";
-        if (apiKeyReplacement) {
-          merged.llm.api_key = apiKeyReplacement;
-        }
-
-        const configPath = paths(home).config;
-        const disk = existsSync(configPath) ? readFileSync(configPath, "utf8") : "";
-        writeAmemConfigFile(home, merged, disk);
-        return { ok: true, data: { path: configPath, saved: true } };
-      } catch (e) {
-        return {
-          ok: false,
-          error: "internal",
-          message: "internal error",
-          status: 500,
-        };
+      const result = applyEditableConfigPatch(home, body);
+      if (!result.ok) {
+        const status = result.error === "internal" ? 500 : 400;
+        return { ok: false, error: result.error, message: result.message, status };
       }
+      return { ok: true, data: result.data };
     },
   };
 }

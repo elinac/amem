@@ -22,6 +22,11 @@ export interface AmemConfig {
     budget_tokens: number;
     l0_items: number;
     l1_items: number;
+    /**
+     * Injection gate mode (retrieval still returns conflict for explicit search):
+     * shadow = audit only / zero inject; assist = use+verify; enforce = use only.
+     */
+    mode: "shadow" | "assist" | "enforce";
   };
   promotion: {
     instance_to_domain_min_instances: number;
@@ -65,7 +70,7 @@ export function defaultConfig(userId = "local"): AmemConfig {
       mode: "stub",
     },
     embedding: { enabled: false, base_url: "", model: "", dim: 1024 },
-    recall: { budget_tokens: 1800, l0_items: 8, l1_items: 3 },
+    recall: { budget_tokens: 1800, l0_items: 8, l1_items: 3, mode: "assist" },
     promotion: {
       instance_to_domain_min_instances: 3,
       domain_to_global_min_domains: 2,
@@ -206,6 +211,12 @@ function sanitizeDshConfig(dsh: AmemConfig["dsh"]): void {
     origins.length > 0 ? origins : [...DEFAULT_DSH_ADMIN.allowed_origins];
 }
 
+function sanitizeRecallConfig(recall: AmemConfig["recall"]): void {
+  if (recall.mode !== "shadow" && recall.mode !== "assist" && recall.mode !== "enforce") {
+    recall.mode = "assist";
+  }
+}
+
 /** Minimal TOML subset reader for our known keys (no full TOML parser dependency). */
 export function parseSimpleToml(text: string): AmemConfig {
   const cfg = defaultConfig();
@@ -234,6 +245,7 @@ export function parseSimpleToml(text: string): AmemConfig {
     assign(cfg, section, key, val);
   }
   sanitizeDshConfig(cfg.dsh);
+  sanitizeRecallConfig(cfg.recall);
   return cfg;
 }
 
@@ -294,6 +306,7 @@ dim = ${cfg.embedding.dim}
 budget_tokens = ${cfg.recall.budget_tokens}
 l0_items = ${cfg.recall.l0_items}
 l1_items = ${cfg.recall.l1_items}
+mode = "${escapeTomlString(cfg.recall.mode)}"
 
 [promotion]
 instance_to_domain_min_instances = ${cfg.promotion.instance_to_domain_min_instances}
@@ -503,6 +516,13 @@ export function extractEditableConfigPatch(
       if (v != null && typeof v === "object" && "error" in v) return v;
       if (v !== undefined) part[key] = v as number;
     }
+    if ("mode" in recall) {
+      const mode = recall.mode;
+      if (mode !== "shadow" && mode !== "assist" && mode !== "enforce") {
+        return { error: "invalid_type", message: "recall.mode must be shadow|assist|enforce" };
+      }
+      part.mode = mode;
+    }
     if (Object.keys(part).length > 0) patch.recall = part;
   }
 
@@ -619,6 +639,15 @@ export function validateEditableConfigPatch(
         if (err) return validationFail(err);
       }
     }
+    if (patch.recall.mode != null) {
+      if (
+        patch.recall.mode !== "shadow" &&
+        patch.recall.mode !== "assist" &&
+        patch.recall.mode !== "enforce"
+      ) {
+        return validationFail("recall.mode must be shadow|assist|enforce");
+      }
+    }
   }
 
   if (patch.promotion) {
@@ -720,6 +749,7 @@ function managedTomlEntries(cfg: AmemConfig): Record<string, Record<string, Toml
       budget_tokens: cfg.recall.budget_tokens,
       l0_items: cfg.recall.l0_items,
       l1_items: cfg.recall.l1_items,
+      mode: cfg.recall.mode,
     },
     promotion: {
       instance_to_domain_min_instances: cfg.promotion.instance_to_domain_min_instances,

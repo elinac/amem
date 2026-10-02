@@ -386,3 +386,59 @@ exclude_workspaces = ["/ws"]
     expect(text).toContain("refine_proposals = true");
   });
 });
+
+describe("config-document deep save", () => {
+  let home: string;
+  afterEach(() => {
+    if (home) rmSync(home, { recursive: true, force: true });
+  });
+
+  it("applyEditableConfigPatch preserves privacy, comments, and empty key", async () => {
+    const { applyEditableConfigPatch, getSafeConfigView } = await import("./config-document.js");
+    home = mkdtempSync(join(tmpdir(), "amem-cfg-doc-"));
+    mkdirSync(home, { recursive: true });
+    const disk = `# keep header
+${configToToml(defaultConfig())}`.replace(
+      /\[privacy\]\r?\nredact_patterns = \[\]\r?\nexclude_workspaces = \[\]\r?\n/,
+      `[privacy]
+redact_patterns = ["SECRET"]
+exclude_workspaces = ["/tmp"]
+`,
+    );
+    writeFileSync(join(home, "amem.toml"), disk);
+    expect(disk).toContain('redact_patterns = ["SECRET"]');
+
+    const cfg = loadConfig(home);
+    cfg.llm.api_key = "keep-me";
+    writeAmemConfigFile(home, cfg);
+
+    const view = getSafeConfigView(home);
+    expect(view.data.config.llm).not.toHaveProperty("api_key");
+    expect(view.data.config.llm.has_api_key).toBe(true);
+
+    const saved = applyEditableConfigPatch(home, {
+      config: {
+        llm: { mode: "external", model: "m1", base_url: view.data.config.llm.base_url },
+      },
+    });
+    expect(saved.ok).toBe(true);
+    const after = loadConfig(home);
+    expect(after.llm.mode).toBe("external");
+    expect(after.llm.api_key).toBe("keep-me");
+    const text = readFileSync(join(home, "amem.toml"), "utf8");
+    expect(text).toContain("# keep header");
+    expect(text).toContain('redact_patterns = ["SECRET"]');
+  });
+
+  it("applyEditableConfigPatch rejects invalid mode", async () => {
+    const { applyEditableConfigPatch } = await import("./config-document.js");
+    home = mkdtempSync(join(tmpdir(), "amem-cfg-doc-bad-"));
+    mkdirSync(home, { recursive: true });
+    writeFileSync(join(home, "amem.toml"), configToToml(defaultConfig()));
+    const r = applyEditableConfigPatch(home, {
+      config: { ...loadConfig(home), llm: { ...loadConfig(home).llm, mode: "nope" } },
+    });
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.error).not.toBe("internal");
+  });
+});
