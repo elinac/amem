@@ -13,6 +13,9 @@ export const RPC_METHODS = [
   "memory.list",
   "memory.get",
   "memory.forget",
+  "memory.recall",
+  "conflict.list",
+  "conflict.resolve",
   "skill.list",
   "proposal.list",
   "proposal.apply",
@@ -148,6 +151,35 @@ function parsePutConfig(params: unknown): { config: unknown; api_key_replacement
   };
 }
 
+function parseRecall(params: unknown): { query: string; k?: number } {
+  const p = requireObject(params);
+  const query = safeString(p.query, "query", MAX_QUERY_LENGTH);
+  const k = p.k == null ? undefined : safePositiveInt(p.k, "k");
+  if (k != null && k > 50) throw new RpcParseError("k must be <= 50");
+  return { query, k };
+}
+
+const RESOLVE_ACTIONS = ["keep_left", "keep_right", "keep_both"] as const;
+
+function parseResolveConflict(params: unknown): {
+  leftId: string;
+  rightId: string;
+  action: (typeof RESOLVE_ACTIONS)[number];
+  leftUpdatedAt: string;
+  rightUpdatedAt: string;
+} {
+  const p = requireObject(params);
+  const action = safeOptionalEnum(p.action, "action", RESOLVE_ACTIONS);
+  if (!action) throw new RpcParseError("invalid action");
+  return {
+    leftId: safeString(p.leftId, "leftId"),
+    rightId: safeString(p.rightId, "rightId"),
+    action,
+    leftUpdatedAt: safeString(p.leftUpdatedAt, "leftUpdatedAt"),
+    rightUpdatedAt: safeString(p.rightUpdatedAt, "rightUpdatedAt"),
+  };
+}
+
 function mapAdminError(error: string): string {
   switch (error) {
     case "not_found":
@@ -159,6 +191,8 @@ function mapAdminError(error: string): string {
     case "compile_failed":
       return "invalid_argument";
     case "conflict":
+    case "conflict_version_mismatch":
+    case "not_a_conflict_pair":
       return "conflict";
     case "internal":
     default:
@@ -210,6 +244,35 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
     scope: "memory:forget",
     parse: (p) => parseId(p),
     run: (admin, p) => invokeAdmin(admin.forget((p as { id: string }).id)),
+  },
+  "memory.recall": {
+    scope: "memory:read",
+    parse: (p) => parseRecall(p),
+    run: (admin, p) => {
+      const { query, k } = p as { query: string; k?: number };
+      return invokeAdmin(admin.recall(query, k));
+    },
+  },
+  "conflict.list": {
+    scope: "memory:read",
+    parse: () => undefined,
+    run: (admin) => invokeAdmin(admin.listConflicts()),
+  },
+  "conflict.resolve": {
+    scope: "memory:resolve-conflict",
+    parse: (p) => parseResolveConflict(p),
+    run: (admin, p) =>
+      invokeAdmin(
+        admin.resolveConflict(
+          p as {
+            leftId: string;
+            rightId: string;
+            action: "keep_left" | "keep_right" | "keep_both";
+            leftUpdatedAt: string;
+            rightUpdatedAt: string;
+          },
+        ),
+      ),
   },
   "skill.list": {
     scope: "skill:read",

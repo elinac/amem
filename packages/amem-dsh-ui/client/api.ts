@@ -291,6 +291,36 @@ export const rpc = {
       }),
     get: (id: string) => rpcCall<MemoryListItem>("memory.get", { id }),
     forget: (id: string) => rpcCall<{ forgotten: string }>("memory.forget", { id }),
+    recall: (query: string, k?: number) =>
+      rpcCall<{
+        hits: Array<{
+          id: string;
+          title: string;
+          score: number;
+          decision: string;
+          reason: string;
+        }>;
+      }>("memory.recall", { query, k }),
+  },
+  conflict: {
+    list: () =>
+      rpcCall<{
+        conflicts: Array<{
+          left: { id: string; title: string; status: string; updated_at: string };
+          right: { id: string; title: string; status: string; updated_at: string };
+        }>;
+      }>("conflict.list", undefined),
+    resolve: (input: {
+      leftId: string;
+      rightId: string;
+      action: "keep_left" | "keep_right" | "keep_both";
+      leftUpdatedAt: string;
+      rightUpdatedAt: string;
+    }) =>
+      rpcCall<{ left: { id: string; status: string }; right: { id: string; status: string } }>(
+        "conflict.resolve",
+        input,
+      ),
   },
   skill: {
     list: () => rpcCall<{ items: unknown[] }>("skill.list", undefined),

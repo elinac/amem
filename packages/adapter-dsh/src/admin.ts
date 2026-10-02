@@ -17,8 +17,8 @@ import {
   loadConfig,
   newId,
 } from "@amem/core";
-import { IndexStore, MemoryStore, runDoctor, listFailedJobs, purgeFailedJobs } from "@amem/store";
-import { buildContextPack, extractSituation, recall } from "@amem/retrieval";
+import { IndexStore, MemoryStore, runDoctor, listFailedJobs, purgeFailedJobs, listConflicts, resolveConflict, type ResolveConflictAction } from "@amem/store";
+import { buildContextPack, decideRecall, extractSituation, recall } from "@amem/retrieval";
 import {
   compileCapabilities,
   listProposalsData,
@@ -203,6 +203,8 @@ export function createAdmin(home = defaultAmemHome()) {
       const c = cfg();
       const sit = extractSituation({ query, userId: c.identity.user_id });
       const hits = recall(home, sit, k ?? c.recall.l0_items);
+      const mode = c.recall.mode ?? "assist";
+      const decisions = decideRecall(hits, mode);
       const pack = buildContextPack({
         home,
         cfg: c,
@@ -214,15 +216,66 @@ export function createAdmin(home = defaultAmemHome()) {
         ok: true,
         data: {
           pack_id: pack.pack_id,
-          hits: hits.map((h) => ({
-            id: h.memory.id,
-            title: h.memory.title,
-            score: h.score,
-            status: h.memory.status,
-            content: h.memory.content.slice(0, 300),
+          mode,
+          hits: decisions.map((d) => ({
+            id: d.memory.id,
+            title: d.memory.title,
+            score: d.score,
+            status: d.memory.status,
+            decision: d.decision,
+            reason: d.reason,
+            parts: d.parts,
+            content: d.memory.content.slice(0, 300),
           })),
+          dropped: pack.dropped,
         },
       };
+    },
+
+    listConflicts(): AdminResult {
+      const pairs = listConflicts(home).map((p) => ({
+        left: {
+          id: p.left.id,
+          title: p.left.title,
+          status: p.left.status,
+          updated_at: p.left.updated_at,
+        },
+        right: {
+          id: p.right.id,
+          title: p.right.title,
+          status: p.right.status,
+          updated_at: p.right.updated_at,
+        },
+      }));
+      return { ok: true, data: { conflicts: pairs } };
+    },
+
+    resolveConflict(input: {
+      leftId: string;
+      rightId: string;
+      action: ResolveConflictAction;
+      leftUpdatedAt: string;
+      rightUpdatedAt: string;
+    }): AdminResult {
+      try {
+        const result = resolveConflict(home, input);
+        return {
+          ok: true,
+          data: {
+            left: { id: result.left.id, status: result.left.status },
+            right: { id: result.right.id, status: result.right.status },
+          },
+        };
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        const status =
+          msg === "not_found"
+            ? 404
+            : msg === "conflict_version_mismatch" || msg === "not_a_conflict_pair"
+              ? 409
+              : 400;
+        return { ok: false, error: msg, message: msg, status };
+      }
     },
 
     note(args: {

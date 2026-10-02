@@ -61,6 +61,12 @@ export const zh = {
   "pagination.page": "{page} / {maxPage}",
   "pagination.pageSize": "每页条数",
   "review.empty": "当前版本尚未建立结构化冲突索引；完成冲突治理迁移后此处将显示待裁决项。",
+  "review.none": "当前没有待裁决的冲突对。",
+  "review.keepLeft": "保留左侧",
+  "review.keepRight": "保留右侧",
+  "review.keepBoth": "暂留双方",
+  "review.noResolveScope": "当前会话缺少 memory:resolve-conflict 权限。",
+  "list.loading": "加载中…",
   "meta.helpful": "helpful={helpful} harmful={harmful}",
   "meta.score": "分={score}",
   "config.reload": "重新加载",
@@ -164,7 +170,7 @@ export const zh = {
     "1) 会话中沉淀可复用步骤（memory_note / 自动抽取） 2) 跨会话 recall + helpful 反馈 3) 运维「整合」生成提案 4) 提案 Tab「应用」入库 5) 运维「编译到 DSH」写入 ~/.dsh/skills。",
   "help.tabsTitle": "各 Tab",
   "help.tabsBody":
-    "记忆：浏览/召回/遗忘。能力：已入库 Skill 列表。提案：候选与应用。审阅：冲突裁决（待接入）。运维：doctor/flush/索引/整合/编译。配置：常用 amem.toml。说明：本页。",
+    "记忆：浏览/召回/遗忘。能力：已入库 Skill 列表。提案：候选与应用。审阅：冲突裁决。运维：doctor/flush/索引/整合/编译。配置：常用 amem.toml。说明：本页。",
   "help.cliTitle": "与 CLI 对照",
   "help.cliBody":
     "健康检查=amem doctor；冲洗队列=amem flush；重建索引=amem rebuild-index；整合=amem consolidate；编译到 DSH=amem compile --target dsh（注意：CLI 默认 target 是 cursor，面板固定 dsh）。",
@@ -251,6 +257,12 @@ export const en: Record<AmemKey, string> = {
   "pagination.pageSize": "Page size",
   "review.empty":
     "Structured conflict indexing is not yet established in this version; pending arbitration items will appear here after the conflict governance migration.",
+  "review.none": "No conflict pairs pending arbitration.",
+  "review.keepLeft": "Keep left",
+  "review.keepRight": "Keep right",
+  "review.keepBoth": "Keep both",
+  "review.noResolveScope": "Session lacks memory:resolve-conflict scope.",
+  "list.loading": "Loading…",
   "meta.helpful": "helpful={helpful} harmful={harmful}",
   "meta.score": "score={score}",
   "config.reload": "Reload",
@@ -355,7 +367,7 @@ export const en: Record<AmemKey, string> = {
     "1) Capture reusable steps in session (memory_note / auto-extract) 2) Cross-session recall + helpful feedback 3) Ops Consolidate to create proposals 4) Proposals tab Apply to library 5) Ops Compile to DSH writes ~/.dsh/skills.",
   "help.tabsTitle": "Tabs",
   "help.tabsBody":
-    "Memories: browse/recall/forget. Skills: library list. Proposals: candidates and apply. Review: conflict arbitration (pending). Ops: doctor/flush/index/consolidate/compile. Config: common amem.toml. Guide: this page.",
+    "Memories: browse/recall/forget. Skills: library list. Proposals: candidates and apply. Review: conflict arbitration. Ops: doctor/flush/index/consolidate/compile. Config: common amem.toml. Guide: this page.",
   "help.cliTitle": "CLI reference",
   "help.cliBody":
     "Doctor=amem doctor; flush queue=amem flush; rebuild index=amem rebuild-index; consolidate=amem consolidate; compile to DSH=amem compile --target dsh (CLI default target is cursor; panel uses dsh).",

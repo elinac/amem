@@ -289,7 +289,8 @@ describe("rpc registry", () => {
 
   it("exposes fixed method registry", () => {
     expect(isRpcMethod("memory.list")).toBe(true);
-    expect(isRpcMethod("conflict.list")).toBe(false);
+    expect(isRpcMethod("conflict.list")).toBe(true);
+    expect(isRpcMethod("memory.recall")).toBe(true);
     expect(isRpcMethod("ops.doctor")).toBe(true);
     expect(isRpcMethod("config.put")).toBe(true);
   });
@@ -299,6 +300,9 @@ describe("rpc registry", () => {
       "memory.list": false,
       "memory.get": false,
       "memory.forget": true,
+      "memory.recall": false,
+      "conflict.list": false,
+      "conflict.resolve": true,
       "skill.list": false,
       "proposal.list": false,
       "proposal.apply": true,

@@ -200,6 +200,12 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
   const [listState, setListState] = useState<AsyncListState>({ kind: "idle" });
   const [skills, setSkills] = useState<unknown[]>([]);
   const [proposals, setProposals] = useState<unknown[]>([]);
+  const [conflicts, setConflicts] = useState<
+    Array<{
+      left: { id: string; title: string; status: string; updated_at: string };
+      right: { id: string; title: string; status: string; updated_at: string };
+    }>
+  >([]);
   const [gapMemories, setGapMemories] = useState<
     import("./api.js").MemoryListItem[]
   >([]);
@@ -322,11 +328,26 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     setTabBusy(false);
   }, [handleAuthError]);
 
+  const loadConflicts = useCallback(async () => {
+    setTabBusy(true);
+    setTabError(null);
+    const result = await rpc.conflict.list();
+    if (!result.ok) {
+      handleAuthError(result.error);
+      setTabError(rpcErrorMessage(result.error));
+      setConflicts([]);
+    } else {
+      setConflicts(result.result.conflicts ?? []);
+    }
+    setTabBusy(false);
+  }, [handleAuthError]);
+
   useEffect(() => {
     if (authState.kind !== "ready") return;
     if (tab === "skills") void loadSkills();
     if (tab === "proposals") void loadProposals();
-  }, [tab, authState.kind, loadSkills, loadProposals]);
+    if (tab === "review") void loadConflicts();
+  }, [tab, authState.kind, loadSkills, loadProposals, loadConflicts]);
 
   const loadConfig = useCallback(
     async (opts?: { keepMsg?: boolean }) => {
@@ -707,16 +728,116 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     );
   };
 
-  const renderReview = () =>
-    createElement(
-      "div",
-      { style: { maxWidth: 640 } },
-      createElement(
+  const onResolveConflict = useCallback(
+    async (
+      pair: {
+        left: { id: string; updated_at: string };
+        right: { id: string; updated_at: string };
+      },
+      action: "keep_left" | "keep_right" | "keep_both",
+    ) => {
+      setTabBusy(true);
+      setTabError(null);
+      const result = await rpc.conflict.resolve({
+        leftId: pair.left.id,
+        rightId: pair.right.id,
+        action,
+        leftUpdatedAt: pair.left.updated_at,
+        rightUpdatedAt: pair.right.updated_at,
+      });
+      if (!result.ok) {
+        handleAuthError(result.error);
+        setTabError(rpcErrorMessage(result.error));
+      } else {
+        await loadConflicts();
+      }
+      setTabBusy(false);
+    },
+    [handleAuthError, loadConflicts],
+  );
+
+  const renderReview = () => {
+    if (tabBusy && conflicts.length === 0) {
+      return createElement("p", { style: { color: tokens.textMuted } }, format(t, "list.loading"));
+    }
+    if (conflicts.length === 0) {
+      return createElement(
         "p",
         { style: { color: tokens.textMuted, lineHeight: 1.6 } },
-        format(t, "review.empty"),
+        format(t, "review.none"),
+      );
+    }
+    const canResolve = auth.hasScope("memory:resolve-conflict");
+    return createElement(
+      "div",
+      { style: { display: "flex", flexDirection: "column", gap: tokens.space3 } },
+      conflicts.map((pair) =>
+        createElement(
+          "div",
+          {
+            key: `${pair.left.id}|${pair.right.id}`,
+            style: {
+              border: `1px solid ${tokens.border}`,
+              borderRadius: tokens.radiusMd,
+              padding: tokens.space3,
+            },
+          },
+          createElement(
+            "div",
+            { style: { marginBottom: tokens.space2, lineHeight: 1.5 } },
+            createElement("strong", null, pair.left.title),
+            " ↔ ",
+            createElement("strong", null, pair.right.title),
+            createElement(
+              "div",
+              { style: { color: tokens.textMuted, fontSize: 12 } },
+              `${pair.left.id} / ${pair.right.id}`,
+            ),
+          ),
+          canResolve
+            ? createElement(
+                "div",
+                { style: { display: "flex", flexWrap: "wrap", gap: tokens.space2 } },
+                createElement(
+                  "button",
+                  {
+                    type: "button",
+                    disabled: tabBusy,
+                    style: styles.button,
+                    onClick: () => void onResolveConflict(pair, "keep_left"),
+                  },
+                  format(t, "review.keepLeft"),
+                ),
+                createElement(
+                  "button",
+                  {
+                    type: "button",
+                    disabled: tabBusy,
+                    style: styles.button,
+                    onClick: () => void onResolveConflict(pair, "keep_right"),
+                  },
+                  format(t, "review.keepRight"),
+                ),
+                createElement(
+                  "button",
+                  {
+                    type: "button",
+                    disabled: tabBusy,
+                    style: mergeStyle(styles.button, styles.ghostButton),
+                    onClick: () => void onResolveConflict(pair, "keep_both"),
+                  },
+                  format(t, "review.keepBoth"),
+                ),
+              )
+            : createElement(
+                "p",
+                { style: { color: tokens.textMuted, margin: 0, fontSize: 12 } },
+                format(t, "review.noResolveScope"),
+              ),
+        ),
       ),
     );
+  };
 
   const renderOps = () =>
     createElement(
@@ -1127,7 +1248,7 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
   const renderWorkbench = () => {
     const summaryCounts = {
       memories: currentData?.total ?? 0,
-      conflicts: 0,
+      conflicts: conflicts.length,
       proposals: proposals.length,
     };
     return createElement(
