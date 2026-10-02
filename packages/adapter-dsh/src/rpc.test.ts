@@ -6,7 +6,8 @@ import { configToToml, defaultConfig, paths } from "@amem/core";
 import { createAdmin } from "./admin.js";
 import { DshTokenStore, type DshAdminScope } from "./auth-store.js";
 import { BrowserSessionManager, type RequestMeta } from "./browser-session.js";
-import { dispatchRpc, isRpcMethod } from "./rpc.js";
+import { dispatchRpc, getRpcMethodScope, isRpcMethod, RPC_METHODS } from "./rpc.js";
+import { isMutating } from "./browser-session.js";
 
 describe("rpc registry", () => {
   let home: string;
@@ -291,5 +292,26 @@ describe("rpc registry", () => {
     expect(isRpcMethod("conflict.list")).toBe(false);
     expect(isRpcMethod("ops.doctor")).toBe(true);
     expect(isRpcMethod("config.put")).toBe(true);
+  });
+
+  it("derives mutating from scope for every registry method", () => {
+    const expected: Record<(typeof RPC_METHODS)[number], boolean> = {
+      "memory.list": false,
+      "memory.get": false,
+      "memory.forget": true,
+      "skill.list": false,
+      "proposal.list": false,
+      "proposal.apply": true,
+      "ops.doctor": false,
+      "ops.flush": true,
+      "ops.rebuild": true,
+      "ops.consolidate": true,
+      "ops.compile": true,
+      "config.get": false,
+      "config.put": true,
+    };
+    for (const method of RPC_METHODS) {
+      expect(isMutating([getRpcMethodScope(method)]), method).toBe(expected[method]);
+    }
   });
 });

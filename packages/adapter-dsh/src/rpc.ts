@@ -37,8 +37,8 @@ export type RpcResponse =
   | { id: string; ok: false; error: { code: string; message: string; details?: unknown } };
 
 export type RpcMethodDef<P, R> = {
+  /** Required scope; CSRF / Sec-Fetch mutating? is derived via isMutating([scope]). */
   scope: DshAdminScope;
-  mutates: boolean;
   parse(params: unknown): P;
   run(admin: AmemAdmin, params: P): Promise<R> | R;
 };
@@ -207,7 +207,6 @@ function errorResponse(id: string, code: string, message: string, details?: unkn
 const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   "memory.list": {
     scope: "memory:read",
-    mutates: false,
     parse: (p) => parseListMemories(p),
     run: (admin, p) => {
       const r = admin.listMemories(p as ListMemoriesInput);
@@ -217,7 +216,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "memory.get": {
     scope: "memory:read",
-    mutates: false,
     parse: (p) => parseId(p),
     run: (admin, p) => {
       const r = admin.getMemory((p as { id: string }).id);
@@ -227,7 +225,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "memory.forget": {
     scope: "memory:forget",
-    mutates: true,
     parse: (p) => parseId(p),
     run: (admin, p) => {
       const r = admin.forget((p as { id: string }).id);
@@ -237,7 +234,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "skill.list": {
     scope: "skill:read",
-    mutates: false,
     parse: () => undefined,
     run: (admin) => {
       const r = admin.listSkills();
@@ -247,7 +243,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "proposal.list": {
     scope: "proposal:read",
-    mutates: false,
     parse: () => undefined,
     run: (admin) => {
       const r = admin.listProposals();
@@ -257,7 +252,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "proposal.apply": {
     scope: "proposal:apply",
-    mutates: true,
     parse: (p) => parseApplyProposal(p),
     run: (admin, p) => {
       const { id, skillName } = p as { id: string; skillName: string };
@@ -268,7 +262,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "ops.doctor": {
     scope: "ops:doctor",
-    mutates: false,
     parse: () => undefined,
     run: (admin) => {
       const r = admin.doctor();
@@ -278,7 +271,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "ops.flush": {
     scope: "ops:flush",
-    mutates: true,
     parse: (p) => parseFlush(p),
     run: async (admin, p) => {
       const r = await admin.flush((p as { sessionId?: string }).sessionId);
@@ -288,7 +280,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "ops.rebuild": {
     scope: "ops:rebuild",
-    mutates: true,
     parse: () => undefined,
     run: (admin) => {
       const r = admin.rebuildIndex();
@@ -298,7 +289,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "ops.consolidate": {
     scope: "ops:consolidate",
-    mutates: true,
     parse: (p) => parseConsolidate(p),
     run: async (admin, p) => {
       const r = await admin.consolidate((p as { dryRun: boolean }).dryRun);
@@ -308,7 +298,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "ops.compile": {
     scope: "ops:compile",
-    mutates: true,
     parse: (p) => parseCompile(p),
     run: (admin, p) => {
       const r = admin.compile((p as { target?: string }).target);
@@ -318,7 +307,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "config.get": {
     scope: "config:read",
-    mutates: false,
     parse: () => undefined,
     run: (admin) => {
       const r = admin.getConfig();
@@ -328,7 +316,6 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   },
   "config.put": {
     scope: "config:write",
-    mutates: true,
     parse: (p) => parsePutConfig(p),
     run: (admin, p) => {
       const { config, api_key_replacement } = p as { config: unknown; api_key_replacement?: string };
@@ -383,6 +370,11 @@ class RpcMethodNotFoundError extends Error {
 
 export function isRpcMethod(v: string): v is RpcMethod {
   return RPC_METHODS.includes(v as RpcMethod);
+}
+
+/** Scope for a registered method (CSRF mutating derived via isMutating). */
+export function getRpcMethodScope(method: RpcMethod): DshAdminScope {
+  return registry[method].scope;
 }
 
 export async function dispatchRpc(

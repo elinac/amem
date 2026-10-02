@@ -26,7 +26,13 @@ export {
   type RequestMeta,
 } from "./browser-session.js";
 export {
+  DshRequestAuth,
+  readCsrfFromHeaders,
+  type AuthorizeRpcInput,
+} from "./request-auth.js";
+export {
   dispatchRpc,
+  getRpcMethodScope,
   isRpcMethod,
   RPC_METHODS,
   type RpcAuth,

@@ -6,7 +6,8 @@ import { loadConfig, paths } from "@amem/core";
 import { createAdmin } from "./admin.js";
 import { DshTokenStore } from "./auth-store.js";
 import { BrowserSessionManager } from "./browser-session.js";
-import { dispatchRpc, type RpcAuth } from "./rpc.js";
+import { DshRequestAuth, readCsrfFromHeaders } from "./request-auth.js";
+import { dispatchRpc } from "./rpc.js";
 import {
   normalizeDshLifecycle,
   normalizeDshSessionEvent,
@@ -129,15 +130,6 @@ function sendUnauth(res: ServerResponse): void {
   });
 }
 
-/** Prefer design-name `X-CSRF-Token`; accept legacy `X-Amem-Csrf`. */
-function readCsrfHeader(req: IncomingMessage): string | undefined {
-  const primary = req.headers["x-csrf-token"];
-  if (typeof primary === "string" && primary) return primary;
-  const legacy = req.headers["x-amem-csrf"];
-  if (typeof legacy === "string" && legacy) return legacy;
-  return undefined;
-}
-
 function requestMeta(req: IncomingMessage): {
   origin: string;
   host: string;
@@ -151,19 +143,6 @@ function requestMeta(req: IncomingMessage): {
     host: typeof host === "string" ? host : "",
     secFetchSite: typeof secFetchSite === "string" ? secFetchSite : undefined,
   };
-}
-
-function parseCookie(cookieHeader: string | undefined): string {
-  if (!cookieHeader) return "";
-  for (const part of cookieHeader.split(";")) {
-    const idx = part.indexOf("=");
-    if (idx < 0) continue;
-    const name = part.slice(0, idx).trim();
-    if (name === "amem_dsh_session") {
-      return part.slice(idx + 1).trim();
-    }
-  }
-  return "";
 }
 
 function rpcStatus(code: string): number {
@@ -202,6 +181,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
   const admin = createAdmin(home);
   const tokenStore = new DshTokenStore(home);
   const sessions = new BrowserSessionManager(home, cfg, tokenStore);
+  const requestAuth = new DshRequestAuth(sessions, cfg.auth_enabled);
   const ended = new Set<string>();
 
   if (typeof ctx.on === "function") {
@@ -281,7 +261,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
               body != null && typeof body === "object" && "bearer" in body
                 ? String((body as Record<string, unknown>).bearer)
                 : "";
-            const result = sessions.login({
+            const result = requestAuth.login({
               bearer: token,
               origin: meta.origin,
               host: meta.host,
@@ -309,7 +289,7 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           }
 
           if (method === "GET" && path === "/auth/status") {
-            const result = sessions.authorizeLocal([], meta);
+            const result = requestAuth.status(meta);
             if (!result.ok) {
               sendUnauth(res);
               return;
@@ -324,8 +304,11 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           }
 
           if (method === "POST" && path === "/auth/csrf") {
-            const cookie = parseCookie(req.headers.cookie);
-            const result = sessions.issueCsrf(cookie, meta);
+            const cookieRaw = req.headers.cookie;
+            const result = requestAuth.issueCsrf(
+              typeof cookieRaw === "string" ? cookieRaw : undefined,
+              meta,
+            );
             if (!result.ok) {
               sendUnauth(res);
               return;
@@ -340,13 +323,13 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
           }
 
           if (method === "DELETE" && path === "/auth/session") {
-            const access = sessions.authorizeLocal([], meta);
+            const access = requestAuth.status(meta);
             if (!access.ok) {
               sendUnauth(res);
               return;
             }
-            const cookie = parseCookie(req.headers.cookie);
-            sessions.logout(cookie);
+            const cookieRaw = req.headers.cookie;
+            requestAuth.logout(typeof cookieRaw === "string" ? cookieRaw : undefined);
             sendJson(
               res,
               200,
@@ -369,11 +352,13 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
               sendJson(res, 400, { error: "invalid_argument", message: "invalid JSON" });
               return;
             }
-            const cookie = parseCookie(req.headers.cookie);
-            const csrf = readCsrfHeader(req);
-            const auth: RpcAuth = cfg.auth_enabled
-              ? (required) => sessions.authenticate(cookie, csrf, [required], meta)
-              : (required) => sessions.authorizeLocal([required], meta);
+            const csrfHeaders = readCsrfFromHeaders(req.headers);
+            const cookieRaw = req.headers.cookie;
+            const auth = requestAuth.rpcAuthFn({
+              cookieHeader: typeof cookieRaw === "string" ? cookieRaw : undefined,
+              ...csrfHeaders,
+              ...meta,
+            });
             const rpcRes = await dispatchRpc(admin, envelope, auth);
             const status = rpcRes.ok ? 200 : rpcStatus(rpcRes.error.code);
             sendJson(res, status, rpcRes, { "cache-control": "no-store" });
