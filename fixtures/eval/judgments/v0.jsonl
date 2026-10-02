@@ -1,0 +1,52 @@
+{"id":"j_port","query":"port already in use","relevant":["mem_port"],"harmful":[],"conflict_ids":[]}
+{"id":"j_migrate","query":"database migration ordering","relevant":["mem_migrate"],"harmful":[],"conflict_ids":[]}
+{"id":"j_hmr","query":"vite HMR websocket","relevant":["mem_hmr"],"harmful":[],"conflict_ids":[]}
+{"id":"j_pnpm","query":"pnpm workspace protocol","relevant":["mem_pnpm"],"harmful":[],"conflict_ids":[]}
+{"id":"j_tspaths","query":"typescript path aliases","relevant":["mem_tspaths"],"harmful":[],"conflict_ids":[]}
+{"id":"j_sqlite","query":"sqlite busy timeout","relevant":["mem_sqlite"],"harmful":[],"conflict_ids":[]}
+{"id":"j_csrf","query":"csrf double submit cookie","relevant":["mem_csrf"],"harmful":[],"conflict_ids":[]}
+{"id":"j_effect","query":"react useEffect cleanup","relevant":["mem_effect"],"harmful":[],"conflict_ids":[]}
+{"id":"j_docker","query":"docker port publish","relevant":["mem_docker"],"harmful":[],"conflict_ids":[]}
+{"id":"j_rebase","query":"git rebase conflict markers","relevant":["mem_rebase"],"harmful":[],"conflict_ids":[]}
+{"id":"j_oauth","query":"oauth refresh token rotation","relevant":["mem_oauth"],"harmful":[],"conflict_ids":[]}
+{"id":"j_zod","query":"zod schema refine","relevant":["mem_zod"],"harmful":[],"conflict_ids":[]}
+{"id":"j_eslint","query":"eslint unused vars CI","relevant":["mem_eslint"],"harmful":[],"conflict_ids":[]}
+{"id":"j_prettier","query":"prettier eslint format fight","relevant":["mem_prettier"],"harmful":[],"conflict_ids":[]}
+{"id":"j_jest","query":"jest fake timers hang","relevant":["mem_jest"],"harmful":[],"conflict_ids":[]}
+{"id":"j_vitest","query":"vitest flaky parallel","relevant":["mem_vitest"],"harmful":[],"conflict_ids":[]}
+{"id":"j_nginx","query":"nginx websocket upgrade","relevant":["mem_nginx"],"harmful":[],"conflict_ids":[]}
+{"id":"j_redis","query":"redis too many connections","relevant":["mem_redis"],"harmful":[],"conflict_ids":[]}
+{"id":"j_kafka","query":"kafka consumer lag","relevant":["mem_kafka"],"harmful":[],"conflict_ids":[]}
+{"id":"j_k8s","query":"kubernetes CrashLoopBackOff","relevant":["mem_k8s"],"harmful":[],"conflict_ids":[]}
+{"id":"j_tls","query":"tls certificate expired","relevant":["mem_tls"],"harmful":[],"conflict_ids":[]}
+{"id":"j_cors","query":"cors preflight blocked","relevant":["mem_cors"],"harmful":[],"conflict_ids":[]}
+{"id":"j_biome","query":"biome organize imports","relevant":["mem_biome"],"harmful":[],"conflict_ids":[]}
+{"id":"j_playwright","query":"playwright strict mode locator","relevant":["mem_playwright"],"harmful":[],"conflict_ids":[]}
+{"id":"j_rate","query":"api rate limit 429","relevant":["mem_rate_limit"],"harmful":[],"conflict_ids":[]}
+{"id":"j_logging","query":"structured logging fields","relevant":["mem_global_logging"],"harmful":[],"conflict_ids":[]}
+{"id":"j_port2","query":"EADDRINUSE when starting vite","relevant":["mem_port"],"harmful":[],"conflict_ids":[]}
+{"id":"j_docker2","query":"cannot reach container from localhost","relevant":["mem_docker"],"harmful":[],"conflict_ids":[]}
+{"id":"j_csrf2","query":"mutating RPC needs CSRF token","relevant":["mem_csrf"],"harmful":[],"conflict_ids":[]}
+{"id":"j_sqlite2","query":"database is locked sqlite","relevant":["mem_sqlite"],"harmful":[],"conflict_ids":[]}
+{"id":"j_oauth2","query":"invalid_grant after refresh","relevant":["mem_oauth"],"harmful":[],"conflict_ids":[]}
+{"id":"j_noise_hr","query":"how do I request vacation days","relevant":["mem_noise_hr"],"harmful":[],"conflict_ids":[]}
+{"id":"j_noise_food","query":"kitchen fridge leftover rules","relevant":["mem_noise_food"],"harmful":[],"conflict_ids":[]}
+{"id":"j_noise_cdn","query":"purge stale CDN edge cache","relevant":["mem_noise_cdn"],"harmful":[],"conflict_ids":[]}
+{"id":"j_cross_port","query":"dev server port occupied","relevant":["mem_port"],"harmful":[],"conflict_ids":[]}
+{"id":"j_cross_auth","query":"session cookie CSRF for admin panel","relevant":["mem_csrf"],"harmful":[],"conflict_ids":[]}
+{"id":"j_lock_conflict","query":"concurrent job runners need a lock","relevant":[],"harmful":[],"conflict_ids":["mem_mutex_a","mem_mutex_b"]}
+{"id":"j_lock_pg","query":"postgres advisory lock for jobs","relevant":["mem_mutex_a"],"harmful":[],"conflict_ids":["mem_mutex_a","mem_mutex_b"]}
+{"id":"j_lock_redis","query":"redis SET NX distributed lock","relevant":["mem_mutex_b"],"harmful":[],"conflict_ids":["mem_mutex_a","mem_mutex_b"]}
+{"id":"j_harm_push","query":"clean git history on main","relevant":[],"harmful":["mem_harm_force_push"],"conflict_ids":[]}
+{"id":"j_harm_auth","query":"reduce login friction in production","relevant":[],"harmful":["mem_harm_disable_auth"],"conflict_ids":[]}
+{"id":"j_harm_disk","query":"disk is full need free space","relevant":[],"harmful":["mem_harm_rm_rf"],"conflict_ids":[]}
+{"id":"j_harm_push2","query":"force push to main is fine?","relevant":[],"harmful":["mem_harm_force_push"],"conflict_ids":[]}
+{"id":"j_format","query":"format on save fights lint rules","relevant":["mem_prettier","mem_eslint"],"harmful":[],"conflict_ids":[]}
+{"id":"j_proxy_ws","query":"websocket fails behind reverse proxy","relevant":["mem_nginx","mem_hmr"],"harmful":[],"conflict_ids":[]}
+{"id":"j_ts_tooling","query":"typescript path aliases and biome imports","relevant":["mem_tspaths","mem_biome"],"harmful":[],"conflict_ids":[]}
+{"id":"j_instance_port","query":"which port for the UI on this instance","situation":{"userId":"eval","instance_id":"notez","domains":["vite"],"tools":["vite"]},"relevant":["mem_instance_only"],"harmful":[],"conflict_ids":[]}
+{"id":"j_pnpm2","query":"workspace protocol for local packages","relevant":["mem_pnpm"],"harmful":[],"conflict_ids":[]}
+{"id":"j_zod2","query":"cross field validation with zod","relevant":["mem_zod"],"harmful":[],"conflict_ids":[]}
+{"id":"j_k8s2","query":"pod keeps restarting CrashLoop","relevant":["mem_k8s"],"harmful":[],"conflict_ids":[]}
+{"id":"j_tls2","query":"HTTPS handshake certificate problem","relevant":["mem_tls"],"harmful":[],"conflict_ids":[]}
+{"id":"j_rate2","query":"client gets HTTP 429 too many requests","relevant":["mem_rate_limit"],"harmful":[],"conflict_ids":[]}
