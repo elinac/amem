@@ -1,9 +1,18 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it, afterEach } from "vitest";
 import { newId, type CanonicalEvent, type MemoryRecord } from "@amem/core";
-import { EpisodeStore, MemoryStore, IndexStore, ProposalStore, resolveConflict } from "./index.js";
+import {
+  EpisodeStore,
+  MemoryStore,
+  IndexStore,
+  ProposalStore,
+  resolveConflict,
+  setCrashHooks,
+  clearCrashHooks,
+  rebuildMemoryIndex,
+} from "./index.js";
 
 const homes: string[] = [];
 function tmpHome(): string {
@@ -12,6 +21,7 @@ function tmpHome(): string {
   return h;
 }
 afterEach(() => {
+  clearCrashHooks();
   for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
 });
 
@@ -214,5 +224,111 @@ describe("resolveConflict", () => {
     expect(r.left.status).toBe("active");
     expect(r.right.status).toBe("superseded");
     expect(r.left.conflicts_with ?? []).toEqual([]);
+  });
+});
+
+describe("crash windows", () => {
+  const baseMem = (id: string, level: "instance" | "domain"): MemoryRecord => ({
+    id,
+    kind: "procedure",
+    title: "t",
+    content: "body",
+    applies_when: "when",
+    scope: {
+      level,
+      tags: { user: "u", domains: ["d"], instances: ["i1"] },
+    },
+    trust: "T3",
+    status: "active",
+    evidence: { episodes: ["ep1"], count: 1, distinct_instances: 1, distinct_domains: 1 },
+    stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+    validity: { depends_on: [], valid_from: "2026-09-26" },
+    created_by: "test",
+    updated_at: new Date().toISOString(),
+  });
+
+  it("upsert crash after new write keeps new readable (no both-missing)", () => {
+    const home = tmpHome();
+    const mem = new MemoryStore(home);
+    const oldPath = mem.write(baseMem("mem_crash", "instance"));
+    setCrashHooks({
+      afterUpsertWrite: () => {
+        throw new Error("crash after upsert write");
+      },
+    });
+    expect(() => mem.upsert(baseMem("mem_crash", "domain"), "pipeline")).toThrow(/crash after upsert/);
+    const hit = mem.readById("mem_crash");
+    expect(hit).not.toBeNull();
+    expect(hit!.scope.level).toBe("domain");
+    expect(existsSync(mem.pathFor(hit!))).toBe(true);
+    // Brief dual-file window is acceptable; both-missing is not.
+    expect(existsSync(oldPath) || existsSync(mem.pathFor(hit!))).toBe(true);
+  });
+
+  it("forget crash after rm leaves dirty index that rebuild clears", () => {
+    const home = tmpHome();
+    const mem = new MemoryStore(home);
+    const rec = baseMem("mem_forget", "domain");
+    mem.write(rec);
+    const idx = new IndexStore(home);
+    idx.rebuild(mem);
+    expect(idx.searchFts("body").some((h) => h.id === "mem_forget")).toBe(true);
+    idx.close();
+
+    setCrashHooks({
+      afterForgetRm: () => {
+        throw new Error("crash after forget rm");
+      },
+    });
+    expect(() => mem.forget("mem_forget")).toThrow(/crash after forget/);
+    expect(mem.readById("mem_forget")).toBeNull();
+
+    const idx2 = new IndexStore(home);
+    // Stale row may still be searchable until rebuild.
+    idx2.rebuild(mem);
+    expect(idx2.searchFts("body").some((h) => h.id === "mem_forget")).toBe(false);
+    idx2.close();
+    expect(rebuildMemoryIndex(home)).toBe(0);
+  });
+
+  it("seal crash after events leaves jsonl; reseal completes", () => {
+    const home = tmpHome();
+    const store = new EpisodeStore(home);
+    const sid = "sess-crash";
+    store.appendSpool(sid, ev({ type: "session_start", session_id: sid }));
+    setCrashHooks({
+      afterSealEvents: () => {
+        throw new Error("crash after seal events");
+      },
+    });
+    expect(() => store.seal(sid)).toThrow(/crash after seal/);
+    expect(store.listMetas().filter((m) => m.session_id === sid)).toHaveLength(0);
+    clearCrashHooks();
+    const meta = store.seal(sid);
+    expect(meta.session_id).toBe(sid);
+    expect(existsSync(meta.events_path)).toBe(true);
+    expect(store.readEvents(meta)).toHaveLength(1);
+  });
+
+  it("apply crash after skill staging does not publish incomplete skill", () => {
+    const home = tmpHome();
+    const ps = new ProposalStore(home);
+    ps.writeDraft({
+      id: "prop_crash",
+      skillMd: "---\nname: crash-skill\ndescription: d\n---\nbody\n",
+      proposalMd: "p",
+    });
+    setCrashHooks({
+      afterApplySkill: () => {
+        throw new Error("crash after apply skill");
+      },
+    });
+    expect(() => ps.apply("prop_crash", "crash-skill")).toThrow(/crash after apply/);
+    const skillsRoot = join(home, "capabilities", "skills");
+    expect(existsSync(join(skillsRoot, "crash-skill"))).toBe(false);
+    const leftover = existsSync(skillsRoot)
+      ? readdirSync(skillsRoot).filter((n) => n.startsWith(".tmp-"))
+      : [];
+    expect(leftover).toEqual([]);
   });
 });

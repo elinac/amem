@@ -17,6 +17,7 @@ import {
   paths,
   sanitizeId,
 } from "@amem/core";
+import { crashHooks } from "./crash-hooks.js";
 
 export class EpisodeStore {
   constructor(private readonly home: string) {}
@@ -65,6 +66,7 @@ export class EpisodeStore {
     const existing = this.listMetas().find((m) => m.session_id === sessionId && m.hash === hash);
     if (existing) return existing;
     atomicWriteText(eventsPath, body);
+    crashHooks().afterSealEvents?.({ eventsPath, episodeId });
     const meta: EpisodeMeta = {
       episode_id: episodeId,
       session_id: sessionId,

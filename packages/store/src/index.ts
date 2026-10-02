@@ -9,6 +9,11 @@ export {
   type ConflictPair,
   type ResolveConflictAction,
 } from "./conflict.js";
+export {
+  setCrashHooks,
+  clearCrashHooks,
+  type CrashHooks,
+} from "./crash-hooks.js";
 
 import { IndexStore as Idx } from "./index-store.js";
 import { MemoryStore as Mem } from "./memory.js";

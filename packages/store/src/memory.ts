@@ -16,6 +16,7 @@ import {
   paths,
 } from "@amem/core";
 import { dropMemoryIndex, syncMemoryIndex } from "./sync.js";
+import { crashHooks } from "./crash-hooks.js";
 
 export class MemoryStore {
   constructor(private readonly home: string) {}
@@ -110,6 +111,7 @@ export class MemoryStore {
     const hit = all.find((m) => m.id === id);
     if (!hit) return false;
     rmSync(this.pathFor(hit), { force: true });
+    crashHooks().afterForgetRm?.({ id });
     dropMemoryIndex(this.home, id);
     return true;
   }
@@ -126,6 +128,7 @@ export class MemoryStore {
       .filter((m) => m.id === record.id)
       .map((m) => this.pathFor(m));
     const newPath = this.write(record, source);
+    crashHooks().afterUpsertWrite?.({ id: record.id, newPath, oldPaths });
     for (const old of oldPaths) {
       if (old !== newPath && existsSync(old)) {
         rmSync(old, { force: true });

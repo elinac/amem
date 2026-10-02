@@ -4,9 +4,12 @@ import {
   mkdirSync,
   readdirSync,
   readFileSync,
+  renameSync,
+  rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteText, isSafeId, paths } from "@amem/core";
+import { crashHooks } from "./crash-hooks.js";
 
 function assertSegment(value: string, label: string): void {
   if (!isSafeId(value)) throw new Error(`unsafe ${label}: ${JSON.stringify(value)}`);
@@ -101,15 +104,28 @@ export class ProposalStore {
     assertSegment(skillName, "skill name");
     const src = join(this.proposalsRoot(), proposalId, "SKILL.md");
     if (!existsSync(src)) throw new Error(`proposal not found: ${proposalId}`);
-    const destDir = join(paths(this.home).capabilities, "skills", skillName);
-    mkdirSync(destDir, { recursive: true });
-    const dest = join(destDir, "SKILL.md");
-    atomicWriteText(dest, readFileSync(src, "utf8"));
-    atomicWriteText(
-      join(destDir, "capability.yaml"),
-      `id: ${skillName}\nversion: 0.1.0\nstatus: active\nsource_proposal: ${proposalId}\n`,
+    const skillsRoot = join(paths(this.home).capabilities, "skills");
+    mkdirSync(skillsRoot, { recursive: true });
+    const stagingDir = join(
+      skillsRoot,
+      `.tmp-${skillName}.${process.pid}.${Date.now()}`,
     );
-    return dest;
+    const destDir = join(skillsRoot, skillName);
+    mkdirSync(stagingDir, { recursive: true });
+    try {
+      atomicWriteText(join(stagingDir, "SKILL.md"), readFileSync(src, "utf8"));
+      crashHooks().afterApplySkill?.({ stagingDir, skillName });
+      atomicWriteText(
+        join(stagingDir, "capability.yaml"),
+        `id: ${skillName}\nversion: 0.1.0\nstatus: active\nsource_proposal: ${proposalId}\n`,
+      );
+      rmSync(destDir, { recursive: true, force: true });
+      renameSync(stagingDir, destDir);
+    } catch (e) {
+      rmSync(stagingDir, { recursive: true, force: true });
+      throw e;
+    }
+    return join(destDir, "SKILL.md");
   }
 
   exportAll(destDir: string): boolean {
