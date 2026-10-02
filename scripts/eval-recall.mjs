@@ -1,89 +1,243 @@
 #!/usr/bin/env node
 /**
- * Recall eval harness (design §14 skeleton).
- * Seeds golden memories and reports Recall@K for keyword queries.
+ * Offline recall effectiveness eval (Phase 2).
+ * Loads fixtures/eval corpus + judgments; reports P@K and injection metrics.
  */
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
+import { defaultConfig } from "../packages/core/dist/index.js";
 import { MemoryStore, IndexStore } from "../packages/store/dist/index.js";
-import { extractSituation, recall } from "../packages/retrieval/dist/index.js";
+import {
+  extractSituation,
+  recall,
+  buildContextPack,
+  decideRecall,
+  injectableDecisions,
+} from "../packages/retrieval/dist/index.js";
+import {
+  DEFAULT_GATES,
+  budgetUtilization,
+  conflictExposureRate,
+  evaluateGates,
+  harmfulInjectionRate,
+  macroAverage,
+  precisionAtK,
+  recallAtK,
+} from "./lib/eval-metrics.mjs";
 
-const cases = [
-  { query: "port already in use", relevant: ["mem_port"] },
-  { query: "database migration ordering", relevant: ["mem_migrate"] },
-  { query: "vite HMR websocket", relevant: ["mem_hmr"] },
-  { query: "pnpm workspace protocol", relevant: ["mem_pnpm"] },
-  { query: "typescript path aliases", relevant: ["mem_tspaths"] },
-  { query: "sqlite busy timeout", relevant: ["mem_sqlite"] },
-  { query: "csrf double submit cookie", relevant: ["mem_csrf"] },
-  { query: "react useEffect cleanup", relevant: ["mem_effect"] },
-  { query: "docker port publish", relevant: ["mem_docker"] },
-  { query: "git rebase conflict markers", relevant: ["mem_rebase"] },
-  { query: "oauth refresh token rotation", relevant: ["mem_oauth"] },
-  { query: "zod schema refine", relevant: ["mem_zod"] },
-];
+const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+const K = DEFAULT_GATES.k;
 
-const fixtures = [
-  { id: "mem_port", title: "port already in use", applies_when: "dev server fails because port is occupied", content: "Find the process holding the port." },
-  { id: "mem_migrate", title: "database migration ordering", applies_when: "schema changes need ordered migrations", content: "Apply migrations in dependency order." },
-  { id: "mem_hmr", title: "vite HMR websocket", applies_when: "hot reload fails behind proxy", content: "Forward the HMR websocket path." },
-  { id: "mem_pnpm", title: "pnpm workspace protocol", applies_when: "linking local packages", content: "Use workspace:* in package.json." },
-  { id: "mem_tspaths", title: "typescript path aliases", applies_when: "imports use @/ aliases", content: "Keep tsconfig paths and bundler resolve in sync." },
-  { id: "mem_sqlite", title: "sqlite busy timeout", applies_when: "concurrent writers lock the db", content: "Set PRAGMA busy_timeout and prefer WAL." },
-  { id: "mem_csrf", title: "csrf double submit cookie", applies_when: "browser mutating admin RPC", content: "Require matching CSRF header with session cookie." },
-  { id: "mem_effect", title: "react useEffect cleanup", applies_when: "subscriptions leak on unmount", content: "Return a cleanup function from useEffect." },
-  { id: "mem_docker", title: "docker port publish", applies_when: "container not reachable from host", content: "Publish with -p host:container." },
-  { id: "mem_rebase", title: "git rebase conflict markers", applies_when: "rebase stops on conflicts", content: "Resolve markers then git rebase --continue." },
-  { id: "mem_oauth", title: "oauth refresh token rotation", applies_when: "refresh returns invalid_grant", content: "Store the new refresh token after each rotate." },
-  { id: "mem_zod", title: "zod schema refine", applies_when: "cross-field validation needed", content: "Use .refine on the object schema." },
-  { id: "mem_noise", title: "unrelated cache tip", applies_when: "cdn cache stale", content: "Purge the edge cache." },
-];
+function loadJsonl(path) {
+  return readFileSync(path, "utf8")
+    .split(/\r?\n/)
+    .filter(Boolean)
+    .map((line) => JSON.parse(line));
+}
 
-const home = mkdtempSync(join(tmpdir(), "amem-eval-"));
-try {
-  const store = new MemoryStore(home);
-  for (const f of fixtures) {
-    store.write(
-      {
-        id: f.id,
-        kind: "failure",
-        title: f.title,
-        content: f.content,
-        applies_when: f.applies_when,
-        scope: { level: "domain", tags: { user: "eval" } },
-        trust: "T2",
-        status: "active",
-        evidence: { episodes: ["e"], count: 1, distinct_instances: 1, distinct_domains: 1 },
-        stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
-        validity: { depends_on: [], valid_from: "2026-01-01" },
-        created_by: "eval",
-        updated_at: new Date().toISOString(),
-      },
-      "human",
-    );
+function parseArgs(argv) {
+  const out = { channel: "fts+tags", writeLatest: true, outPath: null };
+  for (let i = 0; i < argv.length; i++) {
+    const a = argv[i];
+    if (a === "--channel") out.channel = argv[++i] ?? out.channel;
+    else if (a === "--out") out.outPath = argv[++i] ?? null;
+    else if (a === "--no-write") out.writeLatest = false;
   }
-  const idx = new IndexStore(home);
-  idx.rebuild(store);
-  idx.close();
+  return out;
+}
 
-  let hits = 0;
-  let total = 0;
-  for (const c of cases) {
-    const sit = extractSituation({ query: c.query, userId: "eval" });
-    const got = recall(home, sit, 8).map((h) => h.memory.id);
-    const hit = c.relevant.every((id) => got.includes(id));
-    total += 1;
-    if (hit) hits += 1;
-    console.log(`${hit ? "PASS" : "FAIL"} query=${JSON.stringify(c.query)} got=${got.join(",")}`);
+function toRecord(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    title: row.title,
+    content: row.content,
+    applies_when: row.applies_when,
+    not_applies_when: row.not_applies_when,
+    scope: row.scope,
+    trust: row.trust,
+    status: row.status,
+    evidence: {
+      episodes: ["eval"],
+      count: 1,
+      distinct_instances: 1,
+      distinct_domains: 1,
+    },
+    stats: {
+      recalled: 0,
+      adopted: 0,
+      helpful: 0,
+      harmful: row.stats?.harmful ?? 0,
+      lift: row.stats?.lift ?? 0,
+    },
+    validity: { depends_on: [], valid_from: "2026-01-01" },
+    conflicts_with: row.conflicts_with ?? [],
+    created_by: "eval",
+    updated_at: "2026-01-01T00:00:00.000Z",
+  };
+}
+
+function situationFor(judgment) {
+  const s = judgment.situation ?? {};
+  const sit = extractSituation({
+    query: judgment.query,
+    userId: s.userId ?? "eval",
+    instanceId: s.instance_id,
+  });
+  if (Array.isArray(s.domains) && s.domains.length) {
+    sit.domains = [...new Set([...sit.domains, ...s.domains])];
   }
-  const rate = hits / total;
-  console.log(`Recall@8 cases=${total} hit=${hits} rate=${rate.toFixed(2)}`);
-  if (rate < 0.7) process.exit(1);
-} finally {
+  if (Array.isArray(s.tools) && s.tools.length) {
+    sit.tools = [...new Set([...sit.tools, ...s.tools])];
+  }
+  if (s.task_type) sit.task_type = s.task_type;
+  return sit;
+}
+
+function runEval(opts = {}) {
+  const channel = opts.channel ?? "fts+tags";
+  const check = spawnSync(process.execPath, [join(root, "scripts/check-eval-corpus.mjs")], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (check.status !== 0) {
+    process.stderr.write(check.stdout || "");
+    process.stderr.write(check.stderr || "");
+    throw new Error("eval corpus check failed");
+  }
+
+  const memories = loadJsonl(join(root, "fixtures/eval/corpus/v0/memories.jsonl"));
+  const judgments = loadJsonl(join(root, "fixtures/eval/judgments/v0.jsonl"));
+  const memoryById = new Map(memories.map((m) => [m.id, m]));
+
+  const home = mkdtempSync(join(tmpdir(), "amem-eval-"));
   try {
-    rmSync(home, { recursive: true, force: true });
-  } catch {
-    /* windows sqlite unlock */
+    const store = new MemoryStore(home);
+    for (const row of memories) store.write(toRecord(row), "human");
+    const idx = new IndexStore(home);
+    idx.rebuild(store);
+    idx.close();
+
+    const cfg = defaultConfig("eval");
+    cfg.recall.mode = "assist";
+    cfg.recall.l0_items = K;
+
+    const pAtK = [];
+    const rAtK = [];
+    const harmRates = [];
+    const conflictRates = [];
+    const budgetRates = [];
+    let budgetDrops = 0;
+    const perCase = [];
+
+    for (const j of judgments) {
+      const sit = situationFor(j);
+      const hits = recall(home, sit, K);
+      const retrieved = hits.map((h) => h.memory.id);
+      const decisions = decideRecall(hits, "assist");
+      const injectable = injectableDecisions(decisions, "assist").map((d) => d.memory.id);
+
+      if (j.budget_tokens) cfg.recall.budget_tokens = j.budget_tokens;
+      else cfg.recall.budget_tokens = defaultConfig("eval").recall.budget_tokens;
+
+      const pack = buildContextPack({
+        home,
+        cfg,
+        situation: sit,
+        sessionId: `eval-${j.id}`,
+        hits,
+      });
+      const used = pack.items.reduce((s, it) => s + (it.tokens ?? 0), 0);
+      budgetDrops += pack.dropped.filter((d) => d.reason === "budget").length;
+
+      const p = precisionAtK(retrieved, j.relevant ?? [], K);
+      const r = recallAtK(retrieved, j.relevant ?? [], K);
+      const harm = harmfulInjectionRate(injectable, j.harmful ?? []);
+      const conf = conflictExposureRate(retrieved, memoryById);
+      const bud = budgetUtilization(used, pack.budget_tokens);
+
+      pAtK.push(p);
+      rAtK.push(r);
+      harmRates.push(harm);
+      conflictRates.push(conf);
+      budgetRates.push(bud);
+      perCase.push({
+        id: j.id,
+        precision_at_k: p,
+        recall_at_k: r,
+        harmful_injection_rate: harm,
+        conflict_exposure_rate: conf,
+        budget_utilization: bud,
+        retrieved,
+        injectable,
+      });
+    }
+
+    const metrics = {
+      k: K,
+      channel,
+      cases: judgments.length,
+      precision_at_k: macroAverage(pAtK),
+      recall_at_k: macroAverage(rAtK),
+      harmful_injection_rate: macroAverage(harmRates),
+      conflict_exposure_rate: macroAverage(conflictRates),
+      budget_utilization: macroAverage(budgetRates),
+      budget_drop_count: budgetDrops,
+    };
+
+    return {
+      generated_at: new Date().toISOString(),
+      gates: DEFAULT_GATES,
+      metrics,
+      per_case: perCase,
+    };
+  } finally {
+    try {
+      rmSync(home, { recursive: true, force: true });
+    } catch {
+      /* windows sqlite */
+    }
   }
 }
+
+const args = parseArgs(process.argv.slice(2));
+const report = runEval({ channel: args.channel });
+const failures = evaluateGates(report.metrics);
+
+console.log(
+  JSON.stringify(
+    {
+      metrics: report.metrics,
+      gate_failures: failures,
+    },
+    null,
+    2,
+  ),
+);
+
+const outPath =
+  args.outPath ??
+  (args.writeLatest ? join(root, "fixtures/eval/baselines/latest.json") : null);
+if (outPath) {
+  mkdirSync(dirname(outPath), { recursive: true });
+  writeFileSync(outPath, `${JSON.stringify(report, null, 2)}\n`);
+  console.log(`wrote ${outPath}`);
+}
+
+if (failures.length) {
+  console.error(`FAIL eval gates:\n- ${failures.join("\n- ")}`);
+  process.exit(1);
+}
+console.log("PASS eval-recall gates");
+
+export { runEval };
