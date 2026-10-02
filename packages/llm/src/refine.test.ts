@@ -1,5 +1,5 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultConfig } from "@amem/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { tryRefineProposalSkill } from "./index.js";
 
 describe("tryRefineProposalSkill", () => {
@@ -50,7 +50,10 @@ describe("tryRefineProposalSkill", () => {
     const cfg = defaultConfig();
     cfg.llm.mode = "external";
     cfg.llm.api_key = "test-key";
-    vi.stubGlobal("fetch", vi.fn(async () => ({ ok: false, status: 500 })));
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async () => ({ ok: false, status: 500 })),
+    );
     await expect(
       tryRefineProposalSkill(cfg, { id: "m1", title: "t", content: "c" }),
     ).resolves.toBeNull();

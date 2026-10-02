@@ -45,8 +45,8 @@ type NavItem = {
 
 const NAV_ITEMS: NavItem[] = [
   { id: "memories", label: "tab.memories", group: "assets" },
-  { id: "skills", label: "tab.skills", group: "assets" },
   { id: "proposals", label: "tab.proposals", group: "assets" },
+  { id: "skills", label: "tab.skills", group: "assets" },
   { id: "review", label: "tab.review", group: "assets" },
   { id: "ops", label: "tab.ops", group: "system" },
   { id: "config", label: "tab.config", group: "system" },

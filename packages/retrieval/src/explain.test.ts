@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { MemoryRecord, Situation } from "@amem/core";
+import { describe, expect, it } from "vitest";
 import { decideRecall } from "./decide.js";
 import { explainScore, scoreMemory } from "./pack.js";
 

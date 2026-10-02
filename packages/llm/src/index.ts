@@ -1,9 +1,9 @@
 import {
   type AmemConfig,
-  type MemoryCandidate,
-  type MemoryKind,
   ExtractCandidateSchema,
   ExtractCandidatesSchema,
+  type MemoryCandidate,
+  type MemoryKind,
   MemoryKindSchema,
   resolveLlmApiKey,
 } from "@amem/core";
@@ -312,9 +312,7 @@ export class OpenAiCompatibleClient implements LlmClient {
   }> {
     const key = resolveLlmApiKey(this.cfg);
     if (!key) {
-      throw new Error(
-        "missing llm.api_key in amem.toml (or set the env named by llm.api_key_env)",
-      );
+      throw new Error("missing llm.api_key in amem.toml (or set the env named by llm.api_key_env)");
     }
     const res = await fetch(`${this.cfg.llm.base_url}/chat/completions`, {
       method: "POST",
@@ -340,12 +338,7 @@ export class OpenAiCompatibleClient implements LlmClient {
       messages: [
         {
           role: "system",
-          content:
-            `Extract cross-session memories as JSON {"candidates":[...]}. ` +
-            `Allowed kind values (use exactly one): ${MemoryKindSchema.options.join(", ")}. ` +
-            `Each candidate: {kind, title (<=80 chars), content (<=1200 chars), applies_when, evidence:[{event, quote}]}. ` +
-            `"event" MUST be the 0-based index of the episode line containing the quote; ` +
-            `"quote" MUST be a verbatim substring of the episode. 1-8 candidates. No secrets.`,
+          content: `Extract cross-session memories as JSON {"candidates":[...]}. Allowed kind values (use exactly one): ${MemoryKindSchema.options.join(", ")}. Each candidate: {kind, title (<=80 chars), content (<=1200 chars), applies_when, evidence:[{event, quote}]}. "event" MUST be the 0-based index of the episode line containing the quote; "quote" MUST be a verbatim substring of the episode. 1-8 candidates. No secrets.`,
         },
         {
           role: "user",

@@ -77,7 +77,7 @@ type Tab =
   | "config"
   | "help";
 
-const LIST_TABS: Tab[] = ["memories", "skills", "proposals"];
+const LIST_TABS: Tab[] = ["memories", "proposals", "skills"];
 
 const fallbackTranslate: Translate = (k) => k;
 

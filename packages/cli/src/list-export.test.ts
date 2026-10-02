@@ -1,24 +1,12 @@
-import {
-  mkdtempSync,
-  mkdirSync,
-  writeFileSync,
-  rmSync,
-  existsSync,
-  readFileSync,
-} from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { newId, paths, type MemoryRecord } from "@amem/core";
+import { type MemoryRecord, newId, paths } from "@amem/core";
 import { MemoryStore } from "@amem/store";
-import { runList } from "./list.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { parseDurationMs, runAuthIssue, runAuthList, runAuthRevoke } from "./bin.js";
 import { runExport } from "./export.js";
-import {
-  parseDurationMs,
-  runAuthIssue,
-  runAuthList,
-  runAuthRevoke,
-} from "./bin.js";
+import { runList } from "./list.js";
 
 const homes: string[] = [];
 afterEach(() => {

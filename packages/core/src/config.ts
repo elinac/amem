@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { atomicWriteText } from "./atomic-write.js";
 import { amemHome, paths } from "./paths.js";
 
@@ -51,16 +51,16 @@ export interface AmemConfig {
     domain_to_global_min_instances: number;
     global_min_lift: number;
   };
-    budget: {
-      consolidate: {
-        max_llm_calls: number;
-        max_tokens: number;
-        max_proposals: number;
-        max_minutes: number;
-        /** When true, attempt LLM refinement of Proposal SKILL.md (default false). */
-        refine_proposals: boolean;
-      };
+  budget: {
+    consolidate: {
+      max_llm_calls: number;
+      max_tokens: number;
+      max_proposals: number;
+      max_minutes: number;
+      /** When true, attempt LLM refinement of Proposal SKILL.md (default false). */
+      refine_proposals: boolean;
     };
+  };
   privacy: {
     redact_patterns: string[];
     exclude_workspaces: string[];
@@ -225,8 +225,7 @@ function sanitizeDshConfig(dsh: AmemConfig["dsh"]): void {
   const origins = candidates.filter(
     (o): o is string => typeof o === "string" && isValidAllowedOrigin(o),
   );
-  dsh.admin.allowed_origins =
-    origins.length > 0 ? origins : [...DEFAULT_DSH_ADMIN.allowed_origins];
+  dsh.admin.allowed_origins = origins.length > 0 ? origins : [...DEFAULT_DSH_ADMIN.allowed_origins];
 }
 
 function sanitizeRecallConfig(recall: AmemConfig["recall"]): void {
@@ -313,11 +312,7 @@ export function loadConfig(home = amemHome()): AmemConfig {
 }
 
 export function escapeTomlString(s: string): string {
-  return s
-    .replace(/\\/g, "\\\\")
-    .replace(/"/g, '\\"')
-    .replace(/\n/g, "\\n")
-    .replace(/\r/g, "\\r");
+  return s.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r");
 }
 
 export function configToToml(cfg: AmemConfig): string {
@@ -702,10 +697,7 @@ export function validateEditableConfigPatch(
       }
     }
     if (patch.promotion.global_min_lift != null) {
-      const err = validateNonNegFloat(
-        "promotion.global_min_lift",
-        patch.promotion.global_min_lift,
-      );
+      const err = validateNonNegFloat("promotion.global_min_lift", patch.promotion.global_min_lift);
       if (err) return validationFail(err);
     }
   }

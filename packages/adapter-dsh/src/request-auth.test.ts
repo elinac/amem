@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { paths } from "@amem/core";
+import { afterEach, describe, expect, it } from "vitest";
 import { DshTokenStore } from "./auth-store.js";
 import { BrowserSessionManager } from "./browser-session.js";
 import { DshRequestAuth, readCsrfFromHeaders } from "./request-auth.js";

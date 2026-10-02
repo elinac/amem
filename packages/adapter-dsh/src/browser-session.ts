@@ -68,7 +68,6 @@ function randomToken(): string {
   return randomBytes(32).toString("base64url");
 }
 
-
 function isLoopbackHostname(hostname: string): boolean {
   const host = hostname.toLowerCase();
   return host === "localhost" || host === "127.0.0.1" || host === "::1";
@@ -78,7 +77,10 @@ function isLoopbackHost(host: string): boolean {
   try {
     return isLoopbackHostname(new URL(`http://${host}`).hostname);
   } catch {
-    const hostname = host.replace(/^\[|\]$/g, "").split("%")[0]!.split(":")[0]!;
+    const hostname = host
+      .replace(/^\[|\]$/g, "")
+      .split("%")[0]!
+      .split(":")[0]!;
     return isLoopbackHostname(hostname);
   }
 }

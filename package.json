@@ -21,6 +21,7 @@
     "eval:ablate": "node scripts/eval-recall.mjs --ablate",
     "eval:signals": "node scripts/eval-signals.mjs",
     "lint": "biome check packages scripts docs/README.md GLOSSARY.md CHANGELOG.md biome.json",
+    "lint:src": "biome check packages/core/src packages/store/src packages/retrieval/src packages/pipeline/src packages/cli/src packages/adapter-dsh/src packages/gateway-mcp/src packages/llm/src packages/compiler/src packages/adapter-cursor/src packages/adapter-claude-code/src",
     "lint:fix": "biome check --write packages scripts docs/README.md GLOSSARY.md CHANGELOG.md biome.json",
     "amem": "node packages/cli/dist/bin.js"
   },

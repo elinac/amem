@@ -2,30 +2,42 @@ import {
   MEMORY_KINDS,
   MEMORY_PAGE_SIZES,
   MEMORY_STATUSES,
-  SCOPE_LEVELS,
-  TRUSTS,
   type MemoryKind,
   type MemoryPageSize,
   type MemoryRecord,
   type MemoryStatus,
+  SCOPE_LEVELS,
   type ScopeLevel,
+  TRUSTS,
   type Trust,
-  amemHome as defaultAmemHome,
   applyEditableConfigPatch,
+  amemHome as defaultAmemHome,
   getSafeConfigView,
   isSafeId,
   loadConfig,
   newId,
 } from "@amem/core";
-import { IndexStore, MemoryStore, runDoctor, listFailedJobs, purgeFailedJobs, listConflicts, resolveConflict, type ResolveConflictAction } from "@amem/store";
 import { buildContextPack, decideRecall, extractSituation, recall } from "@amem/retrieval";
+import {
+  type ConflictActor,
+  ConflictError,
+  IndexStore,
+  MemoryStore,
+  type ResolveConflictAction,
+  listConflicts,
+  listFailedJobs,
+  purgeFailedJobs,
+  resolveConflict,
+  runDoctor,
+} from "@amem/store";
+
 import {
   compileCapabilities,
   listProposalsData,
   listSkillsData,
   materializeProposal,
 } from "@amem/compiler";
-import { consolidate as runConsolidate, enqueueFlush, processQueue } from "@amem/pipeline";
+import { enqueueFlush, processQueue, consolidate as runConsolidate } from "@amem/pipeline";
 import type { DshAdminScope } from "./auth-store.js";
 
 export type AdminResult =
@@ -75,8 +87,7 @@ function isMemoryStatus(v: unknown): v is MemoryStatus {
 function matchesQuery(m: MemoryRecord, q?: string): boolean {
   if (!q || q.trim() === "") return true;
   const needle = q.trim().toLowerCase();
-  const hay =
-    `${m.title}\n${m.applies_when}\n${m.content}`.toLowerCase();
+  const hay = `${m.title}\n${m.applies_when}\n${m.content}`.toLowerCase();
   return hay.includes(needle);
 }
 
@@ -105,90 +116,116 @@ export function createAdmin(home = defaultAmemHome()) {
   function listMemories(input?: number | ListMemoriesInput): AdminResult {
     // Legacy number overload: keep old behavior for plugin.ts and CLI callers.
     if (typeof input === "number") {
-        const all = new MemoryStore(home).listAll();
-        all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-        return {
-          ok: true,
-          data: {
-            total: all.length,
-            items: all.slice(0, input).map(memoryToListItem),
-          },
-        };
-      }
-
-      const opts: ListMemoriesInput =
-        typeof input === "number" ? { page: 1, pageSize: 20 } : input ?? { page: 1, pageSize: 20 };
-
-      if (typeof opts.page !== "undefined" && (typeof opts.page !== "number" || !Number.isFinite(opts.page) || opts.page < 1 || Math.floor(opts.page) !== opts.page)) {
-        return { ok: false, error: "bad_request", message: "page must be a positive integer", status: 400 };
-      }
-      if (typeof opts.pageSize !== "undefined" && !(MEMORY_PAGE_SIZES as readonly number[]).includes(opts.pageSize)) {
-        return { ok: false, error: "bad_request", message: "pageSize must be 20, 50 or 100", status: 400 };
-      }
-      if (opts.kind != null && !isMemoryKind(opts.kind)) {
-        return { ok: false, error: "bad_request", message: "invalid kind", status: 400 };
-      }
-      if (opts.level != null && !isScopeLevel(opts.level)) {
-        return { ok: false, error: "bad_request", message: "invalid level", status: 400 };
-      }
-      if (opts.trust != null && !isTrust(opts.trust)) {
-        return { ok: false, error: "bad_request", message: "invalid trust", status: 400 };
-      }
-      if (opts.status != null && !isMemoryStatus(opts.status)) {
-        return { ok: false, error: "bad_request", message: "invalid status", status: 400 };
-      }
-
-      const pageSize: MemoryPageSize = opts.pageSize ?? 20;
-      const page = opts.page ?? 1;
-
       const all = new MemoryStore(home).listAll();
       all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-
-      const filtered = all.filter((m) => {
-        if (!matchesQuery(m, opts.q)) return false;
-        if (opts.kind != null && m.kind !== opts.kind) return false;
-        if (opts.level != null && m.scope.level !== opts.level) return false;
-        if (opts.trust != null && m.trust !== opts.trust) return false;
-        if (opts.status != null && m.status !== opts.status) return false;
-        return true;
-      });
-
-      function countFacet<K extends string>(key: keyof ListMemoriesInput, values: readonly K[], getValue: (m: MemoryRecord) => K): Record<K, number> {
-        const counts = {} as Record<K, number>;
-        for (const v of values) counts[v] = 0;
-        for (const m of all) {
-          if (!matchesQuery(m, opts.q)) continue;
-          if (opts.kind != null && key !== "kind" && m.kind !== opts.kind) continue;
-          if (opts.level != null && key !== "level" && m.scope.level !== opts.level) continue;
-          if (opts.trust != null && key !== "trust" && m.trust !== opts.trust) continue;
-          if (opts.status != null && key !== "status" && m.status !== opts.status) continue;
-          const v = getValue(m);
-          counts[v] = (counts[v] ?? 0) + 1;
-        }
-        return counts;
-      }
-
-      const total = filtered.length;
-      const effectivePage = total === 0 ? 1 : page;
-      const start = (effectivePage - 1) * pageSize;
-      const pageItems = start >= total && total > 0 ? [] : filtered.slice(start, start + pageSize).map(memoryToListItem);
-
       return {
         ok: true,
         data: {
-          items: pageItems,
-          total,
-          page: effectivePage,
-          pageSize,
-          facets: {
-            kind: countFacet("kind", MEMORY_KINDS, (m) => m.kind),
-            level: countFacet("level", SCOPE_LEVELS, (m) => m.scope.level),
-            trust: countFacet("trust", TRUSTS, (m) => m.trust),
-            status: countFacet("status", MEMORY_STATUSES, (m) => m.status),
-          },
+          total: all.length,
+          items: all.slice(0, input).map(memoryToListItem),
         },
       };
     }
+
+    const opts: ListMemoriesInput =
+      typeof input === "number" ? { page: 1, pageSize: 20 } : (input ?? { page: 1, pageSize: 20 });
+
+    if (
+      typeof opts.page !== "undefined" &&
+      (typeof opts.page !== "number" ||
+        !Number.isFinite(opts.page) ||
+        opts.page < 1 ||
+        Math.floor(opts.page) !== opts.page)
+    ) {
+      return {
+        ok: false,
+        error: "bad_request",
+        message: "page must be a positive integer",
+        status: 400,
+      };
+    }
+    if (
+      typeof opts.pageSize !== "undefined" &&
+      !(MEMORY_PAGE_SIZES as readonly number[]).includes(opts.pageSize)
+    ) {
+      return {
+        ok: false,
+        error: "bad_request",
+        message: "pageSize must be 20, 50 or 100",
+        status: 400,
+      };
+    }
+    if (opts.kind != null && !isMemoryKind(opts.kind)) {
+      return { ok: false, error: "bad_request", message: "invalid kind", status: 400 };
+    }
+    if (opts.level != null && !isScopeLevel(opts.level)) {
+      return { ok: false, error: "bad_request", message: "invalid level", status: 400 };
+    }
+    if (opts.trust != null && !isTrust(opts.trust)) {
+      return { ok: false, error: "bad_request", message: "invalid trust", status: 400 };
+    }
+    if (opts.status != null && !isMemoryStatus(opts.status)) {
+      return { ok: false, error: "bad_request", message: "invalid status", status: 400 };
+    }
+
+    const pageSize: MemoryPageSize = opts.pageSize ?? 20;
+    const page = opts.page ?? 1;
+
+    const all = new MemoryStore(home).listAll();
+    all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
+
+    const filtered = all.filter((m) => {
+      if (!matchesQuery(m, opts.q)) return false;
+      if (opts.kind != null && m.kind !== opts.kind) return false;
+      if (opts.level != null && m.scope.level !== opts.level) return false;
+      if (opts.trust != null && m.trust !== opts.trust) return false;
+      if (opts.status != null && m.status !== opts.status) return false;
+      return true;
+    });
+
+    function countFacet<K extends string>(
+      key: keyof ListMemoriesInput,
+      values: readonly K[],
+      getValue: (m: MemoryRecord) => K,
+    ): Record<K, number> {
+      const counts = {} as Record<K, number>;
+      for (const v of values) counts[v] = 0;
+      for (const m of all) {
+        if (!matchesQuery(m, opts.q)) continue;
+        if (opts.kind != null && key !== "kind" && m.kind !== opts.kind) continue;
+        if (opts.level != null && key !== "level" && m.scope.level !== opts.level) continue;
+        if (opts.trust != null && key !== "trust" && m.trust !== opts.trust) continue;
+        if (opts.status != null && key !== "status" && m.status !== opts.status) continue;
+        const v = getValue(m);
+        counts[v] = (counts[v] ?? 0) + 1;
+      }
+      return counts;
+    }
+
+    const total = filtered.length;
+    const effectivePage = total === 0 ? 1 : page;
+    const start = (effectivePage - 1) * pageSize;
+    const pageItems =
+      start >= total && total > 0
+        ? []
+        : filtered.slice(start, start + pageSize).map(memoryToListItem);
+
+    return {
+      ok: true,
+      data: {
+        items: pageItems,
+        total,
+        page: effectivePage,
+        pageSize,
+        facets: {
+          kind: countFacet("kind", MEMORY_KINDS, (m) => m.kind),
+          level: countFacet("level", SCOPE_LEVELS, (m) => m.scope.level),
+          trust: countFacet("trust", TRUSTS, (m) => m.trust),
+          status: countFacet("status", MEMORY_STATUSES, (m) => m.status),
+        },
+      },
+    };
+  }
 
   return {
     listMemories,
@@ -250,15 +287,18 @@ export function createAdmin(home = defaultAmemHome()) {
       return { ok: true, data: { conflicts: pairs } };
     },
 
-    resolveConflict(input: {
-      leftId: string;
-      rightId: string;
-      action: ResolveConflictAction;
-      leftUpdatedAt: string;
-      rightUpdatedAt: string;
-    }): AdminResult {
+    resolveConflict(
+      input: {
+        leftId: string;
+        rightId: string;
+        action: ResolveConflictAction;
+        leftUpdatedAt: string;
+        rightUpdatedAt: string;
+      },
+      actor?: ConflictActor,
+    ): AdminResult {
       try {
-        const result = resolveConflict(home, input);
+        const result = resolveConflict(home, input, actor ?? { kind: "dsh" });
         return {
           ok: true,
           data: {
@@ -267,7 +307,8 @@ export function createAdmin(home = defaultAmemHome()) {
           },
         };
       } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
+        const msg =
+          e instanceof ConflictError ? e.code : e instanceof Error ? e.message : String(e);
         const status =
           msg === "not_found"
             ? 404
@@ -299,9 +340,7 @@ export function createAdmin(home = defaultAmemHome()) {
         status: "candidate",
         evidence: {
           episodes: [],
-          quotes: args.evidence_hint
-            ? [{ ep: "admin-note", text: args.evidence_hint }]
-            : [],
+          quotes: args.evidence_hint ? [{ ep: "admin-note", text: args.evidence_hint }] : [],
           count: 0,
           distinct_instances: 1,
           distinct_domains: 1,

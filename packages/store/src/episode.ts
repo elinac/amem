@@ -1,22 +1,16 @@
 import { createHash } from "node:crypto";
-import {
-  appendFileSync,
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-} from "node:fs";
+import { appendFileSync, existsSync, mkdirSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
-import { stringify as yamlStringify, parse as yamlParse } from "yaml";
 import {
   type CanonicalEvent,
-  type EpisodeMeta,
   CanonicalEventSchema,
+  type EpisodeMeta,
   atomicWriteText,
   newId,
   paths,
   sanitizeId,
 } from "@amem/core";
+import { parse as yamlParse, stringify as yamlStringify } from "yaml";
 import { crashHooks } from "./crash-hooks.js";
 
 export class EpisodeStore {
@@ -61,7 +55,7 @@ export class EpisodeStore {
     const dir = join(paths(this.home).episodes, ym);
     mkdirSync(dir, { recursive: true });
     const eventsPath = join(dir, `${episodeId}.jsonl`);
-    const body = events.map((e) => JSON.stringify(e)).join("\n") + "\n";
+    const body = `${events.map((e) => JSON.stringify(e)).join("\n")}\n`;
     const hash = createHash("sha256").update(body).digest("hex");
     const existing = this.listMetas().find((m) => m.session_id === sessionId && m.hash === hash);
     if (existing) return existing;

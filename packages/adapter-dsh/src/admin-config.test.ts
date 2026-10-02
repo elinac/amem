@@ -1,8 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { configToToml, defaultConfig, loadConfig } from "@amem/core";
+import { afterEach, describe, expect, it } from "vitest";
 import { createAdmin } from "./admin.js";
 
 describe("admin config", () => {
@@ -101,6 +101,7 @@ exclude_workspaces = ["/x"]
     const cfg = loadConfig(h);
     cfg.llm.api_key_env = "AMEM_TEST_UNSET_KEY";
     writeFileSync(join(h, "amem.toml"), configToToml(cfg));
+    // biome-ignore lint/performance/noDelete: must unset env key (assigning undefined stringifies)
     delete process.env.AMEM_TEST_UNSET_KEY;
 
     const first = createAdmin(h).getConfig();

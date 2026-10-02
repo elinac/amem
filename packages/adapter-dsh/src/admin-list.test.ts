@@ -1,10 +1,17 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { configToToml, defaultConfig, type MemoryKind, type MemoryStatus, type ScopeLevel, type Trust } from "@amem/core";
+import {
+  type MemoryKind,
+  type MemoryStatus,
+  type ScopeLevel,
+  type Trust,
+  configToToml,
+  defaultConfig,
+} from "@amem/core";
 import { MemoryStore } from "@amem/store";
-import { createAdmin, type ListMemoriesInput } from "./admin.js";
+import { afterEach, describe, expect, it } from "vitest";
+import { type ListMemoriesInput, createAdmin } from "./admin.js";
 
 describe("admin list", () => {
   let home: string;
@@ -192,7 +199,12 @@ describe("admin list", () => {
         scope: { level: "instance", tags: {} },
         trust: "T2",
         status: "active",
-        evidence: { episodes: [] as string[], count: 0, distinct_instances: 1, distinct_domains: 1 },
+        evidence: {
+          episodes: [] as string[],
+          count: 0,
+          distinct_instances: 1,
+          distinct_domains: 1,
+        },
         stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
         validity: { depends_on: [] as string[], valid_from: "2026-01-01" },
         created_by: "test",

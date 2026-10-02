@@ -1,11 +1,4 @@
-export type HostId =
-  | "cursor"
-  | "claude-code"
-  | "codex"
-  | "opencode"
-  | "gemini"
-  | "dsh"
-  | "generic";
+export type HostId = "cursor" | "claude-code" | "codex" | "opencode" | "gemini" | "dsh" | "generic";
 
 export type CanonicalEventType =
   | "session_start"
@@ -156,6 +149,10 @@ export interface PackItem {
   level?: ScopeLevel;
   score?: number;
   tokens: number;
+  /** Gate decision for this injection (W3). */
+  decision?: "use" | "verify" | "ignore";
+  /** Stable id for feedback linkage (W3). */
+  decision_id?: string;
 }
 
 export interface ContextPack {

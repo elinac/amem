@@ -1,10 +1,17 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { defaultConfig, newId, type CanonicalEvent } from "@amem/core";
+import { type CanonicalEvent, defaultConfig, newId } from "@amem/core";
 import { EpisodeStore, MemoryStore, ProposalStore } from "@amem/store";
-import { consolidate, extractSession, promoteLevel, reconcile, shouldPromoteToDomain } from "./index.js";
+import { afterEach, describe, expect, it } from "vitest";
+import {
+  consolidate,
+  extractSession,
+  promoteLevel,
+  reconcile,
+  shouldExpire,
+  shouldPromoteToDomain,
+} from "./index.js";
 
 const homes: string[] = [];
 afterEach(() => {
@@ -288,5 +295,55 @@ describe("consolidate", () => {
     const r = await consolidate(home, defaultConfig());
     expect(r.expired).toContain("mem_old");
     expect(store.readById("mem_old")?.status).toBe("expired");
+  });
+
+  it("cascades depends_on to review_by=today without same-day expire", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-cascade-"));
+    homes.push(home);
+    const store = new MemoryStore(home);
+    const today = new Date().toISOString().slice(0, 10);
+    store.write(
+      {
+        id: "mem_parent",
+        kind: "procedure",
+        title: "parent",
+        content: "p",
+        applies_when: "w",
+        scope: { level: "instance", tags: { user: "u" } },
+        trust: "T3",
+        status: "expired",
+        evidence: { episodes: ["e"], count: 1, distinct_instances: 1, distinct_domains: 1 },
+        stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+        validity: { depends_on: [], valid_from: "2020-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "human",
+    );
+    store.write(
+      {
+        id: "mem_child",
+        kind: "procedure",
+        title: "child",
+        content: "c",
+        applies_when: "w",
+        scope: { level: "instance", tags: { user: "u" } },
+        trust: "T3",
+        status: "active",
+        evidence: { episodes: ["e"], count: 1, distinct_instances: 1, distinct_domains: 1 },
+        stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+        validity: { depends_on: ["mem_parent"], valid_from: "2020-01-01" },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "human",
+    );
+    const r = await consolidate(home, defaultConfig());
+    expect(r.cascaded).toContain("mem_child");
+    const child = store.readById("mem_child");
+    expect(child?.status).toBe("active");
+    expect(child?.validity.review_by).toBe(today);
+    // same-day: review_by === today → shouldExpire is false (requires < today)
+    expect(shouldExpire(child!, today)).toBe(false);
   });
 });

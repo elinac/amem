@@ -1,6 +1,6 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { defaultConfig } from "@amem/core";
-import { normalizeCandidates, OpenAiCompatibleClient } from "./index.js";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { OpenAiCompatibleClient, normalizeCandidates } from "./index.js";
 
 const blob = `${[
   JSON.stringify({
@@ -158,9 +158,7 @@ describe("OpenAiCompatibleClient.extractCandidates", () => {
             title: "amem workspace root is write-protected",
             content: "Shell calls fail before running; prefer read/grep/glob.",
             applies_when: "probing the amem workspace via shell",
-            evidence: [
-              { event: "tool_result: shell call failed", quote: "Error: Port 3000" },
-            ],
+            evidence: [{ event: "tool_result: shell call failed", quote: "Error: Port 3000" }],
           },
         ],
       }),
@@ -186,7 +184,10 @@ describe("OpenAiCompatibleClient.extractCandidates", () => {
   it("returns no candidates (and does not throw) on unparseable content", async () => {
     stubContent("I could not produce JSON today.");
     await expect(
-      new OpenAiCompatibleClient(cfgWithKey()).extractCandidates({ summary: "s", episodeBlob: blob }),
+      new OpenAiCompatibleClient(cfgWithKey()).extractCandidates({
+        summary: "s",
+        episodeBlob: blob,
+      }),
     ).resolves.toEqual([]);
   });
 });

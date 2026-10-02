@@ -2,13 +2,15 @@ import {
   appendFileSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
 } from "node:fs";
 import { join } from "node:path";
 import { atomicWriteJson, loadConfig, paths, sanitizeId } from "@amem/core";
+import { createLlmClient } from "@amem/llm";
+import { setEmbedProvider } from "@amem/store";
 import { extractSession } from "./extract.js";
 import { createFlushJob, parseFlushJob } from "./flush-job.js";
 
@@ -45,6 +47,14 @@ export async function processQueue(home: string): Promise<number> {
   const dir = paths(home).queue;
   if (!existsSync(dir)) return 0;
   const cfg = loadConfig(home);
+  if (cfg.embedding.enabled) {
+    const client = createLlmClient(cfg);
+    if (client.embedTexts) {
+      setEmbedProvider((texts) => client.embedTexts!(texts));
+    }
+  } else {
+    setEmbedProvider(null);
+  }
   let n = 0;
   for (const f of readdirSync(dir).filter(isPendingJob)) {
     const p = join(dir, f);

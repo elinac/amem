@@ -9,15 +9,49 @@ export { ProposalStore, type ProposalRow } from "./proposal.js";
 export { syncMemoryIndex, dropMemoryIndex } from "./sync.js";
 export {
   listConflicts,
-  resolveConflict,
+  computeResolveTargets,
   type ConflictPair,
   type ResolveConflictAction,
 } from "./conflict.js";
+export {
+  resolveConflict,
+  resolveConflictTransactional,
+  recoverJournals,
+  listBlockedMemoryIds,
+  migrateLinkConflict,
+  commitPairedMutation,
+  ConflictError,
+  type ConflictActor,
+  type ConflictErrorCode,
+  type ConflictJournal,
+} from "./conflict-journal.js";
 export {
   setCrashHooks,
   clearCrashHooks,
   type CrashHooks,
 } from "./crash-hooks.js";
+export {
+  revokeEpochsReferencing,
+  revokeEpoch,
+  readEpoch,
+  writeEpoch,
+  casEpochState,
+  tryCreateOpenEpoch,
+  epochKeyHash,
+  epochPath,
+  assertEpochIds,
+  type EpochRecord,
+  type EpochState,
+  type EpochItem,
+} from "./epoch-store.js";
+export { gcManifests } from "./gc-manifests.js";
+export {
+  setEmbedProvider,
+  getEmbedProvider,
+  scheduleEmbed,
+  embedAllMemories,
+  type EmbedTextsFn,
+} from "./embed-provider.js";
 export {
   runDoctor,
   listFailedJobs,

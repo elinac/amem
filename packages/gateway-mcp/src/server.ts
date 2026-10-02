@@ -1,27 +1,20 @@
 #!/usr/bin/env node
+import { amemHome } from "@amem/core";
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import {
-  CallToolRequestSchema,
-  ListToolsRequestSchema,
-} from "@modelcontextprotocol/sdk/types.js";
-import { amemHome } from "@amem/core";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { createToolHandlers } from "./handlers.js";
 
 const home = process.env.AMEM_HOME ?? amemHome();
 const tools = createToolHandlers(home);
 
-const server = new Server(
-  { name: "amem", version: "0.1.0" },
-  { capabilities: { tools: {} } },
-);
+const server = new Server({ name: "amem", version: "0.1.0" }, { capabilities: { tools: {} } });
 
 server.setRequestHandler(ListToolsRequestSchema, async () => ({
   tools: [
     {
       name: "memory_recall",
-      description:
-        "Recall cross-session memories for the current task. Call at task start.",
+      description: "Recall cross-session memories for the current task. Call at task start.",
       inputSchema: {
         type: "object",
         properties: {
@@ -67,6 +60,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
           id: { type: "string" },
           verdict: { type: "string", enum: ["helpful", "harmful"] },
           reason: { type: "string" },
+          decision_id: { type: "string" },
         },
         required: ["id", "verdict"],
       },
@@ -81,13 +75,14 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
     },
     {
       name: "context_pack",
-      description: "Build a budgeted context pack",
+      description: "Build a budgeted context pack (pass epoch_id for fixed snapshot)",
       inputSchema: {
         type: "object",
         properties: {
           query: { type: "string" },
           budget: { type: "number" },
           session_id: { type: "string" },
+          epoch_id: { type: "string" },
         },
         required: ["query"],
       },

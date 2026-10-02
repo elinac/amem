@@ -1,8 +1,8 @@
-import { mkdtempSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { paths } from "@amem/core";
+import { afterEach, describe, expect, it } from "vitest";
 import { DshTokenStore } from "./auth-store.js";
 
 const homes: string[] = [];
@@ -99,7 +99,7 @@ describe("DshTokenStore", () => {
     const store = new DshTokenStore(home);
     const { token } = store.issue(["memory:read"], 60 * 60 * 1000);
     const file = JSON.parse(readFileSync(paths(home).dshTokens, "utf8"));
-    delete file.tokens[0].hash;
+    file.tokens[0].hash = undefined;
     writeFileSync(paths(home).dshTokens, JSON.stringify(file), "utf8");
     expect(store.verify(token)).toBeNull();
   });

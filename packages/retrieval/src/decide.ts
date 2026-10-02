@@ -34,11 +34,14 @@ const USE_SCORE_MIN = 0.35;
 /**
  * Pure gate: retrieval hits → inject decisions. Does not mutate records or scores.
  * Spec: only `active` without pending `conflicts_with` may be use/verify.
+ * I11: ids in blockedIds (open conflict journals) → ignore / journal_pending.
  */
 export function decideRecall(
   hits: RecallHit[],
   mode: RecallMode = "assist",
+  opts?: { blockedIds?: ReadonlySet<string> },
 ): RecallDecision[] {
+  const blocked = opts?.blockedIds;
   return hits.map((h) => {
     const m = h.memory;
     const base = {
@@ -46,6 +49,9 @@ export function decideRecall(
       score: h.score,
       ...(h.parts ? { parts: h.parts } : {}),
     };
+    if (blocked?.has(m.id)) {
+      return { ...base, decision: "ignore" as const, reason: "journal_pending" };
+    }
     if (m.status === "conflict") {
       return { ...base, decision: "ignore" as const, reason: "status_conflict" };
     }

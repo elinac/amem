@@ -39,10 +39,7 @@ export function redactDeep(value: unknown, key = "", opts: RedactOptions = {}): 
   if (Array.isArray(value)) return value.map((v) => redactDeep(v, key, opts));
   if (value && typeof value === "object") {
     return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>).map(([k, v]) => [
-        k,
-        redactDeep(v, k, opts),
-      ]),
+      Object.entries(value as Record<string, unknown>).map(([k, v]) => [k, redactDeep(v, k, opts)]),
     );
   }
   return value;
@@ -72,8 +69,7 @@ export function isExcludedWorkspace(
   exclude: string[],
 ): boolean {
   if (!workspaceRoot || !exclude.length) return false;
-  const norm = (p: string) =>
-    p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const norm = (p: string) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
   const root = norm(workspaceRoot);
   for (const ex of exclude) {
     const e = norm(String(ex ?? ""));

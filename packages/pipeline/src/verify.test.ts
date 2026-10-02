@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { CanonicalEvent, MemoryRecord } from "@amem/core";
+import { describe, expect, it } from "vitest";
 import {
   MIN_CANDIDATE_EVIDENCE_LENGTH,
   externalEventLines,
@@ -50,9 +50,7 @@ describe("externalEvidenceFor", () => {
 
   it("prefers the longest matching needle", () => {
     const long = `${HINT} (more specific)`;
-    const wide = [
-      { index: 0, type: "tool_result", line: `prefix ${long} suffix` },
-    ];
+    const wide = [{ index: 0, type: "tool_result", line: `prefix ${long} suffix` }];
     expect(externalEvidenceFor([HINT, long], wide)).toEqual({ event: 0, quote: long });
   });
 

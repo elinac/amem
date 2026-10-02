@@ -1,13 +1,13 @@
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { configToToml, defaultConfig, paths } from "@amem/core";
+import { afterEach, describe, expect, it } from "vitest";
 import { createAdmin } from "./admin.js";
-import { DshTokenStore, type DshAdminScope } from "./auth-store.js";
+import { type DshAdminScope, DshTokenStore } from "./auth-store.js";
 import { BrowserSessionManager, type RequestMeta } from "./browser-session.js";
-import { dispatchRpc, getRpcMethodScope, isRpcMethod, RPC_METHODS } from "./rpc.js";
 import { isMutating } from "./browser-session.js";
+import { RPC_METHODS, dispatchRpc, getRpcMethodScope, isRpcMethod } from "./rpc.js";
 
 describe("rpc registry", () => {
   let home: string;
@@ -80,7 +80,11 @@ describe("rpc registry", () => {
     const cookie = cookieMatch![1]!;
 
     const meta: RequestMeta = { origin, host: new URL(origin).host };
-    const mutateMeta: RequestMeta = { origin, host: new URL(origin).host, secFetchSite: "same-origin" };
+    const mutateMeta: RequestMeta = {
+      origin,
+      host: new URL(origin).host,
+      secFetchSite: "same-origin",
+    };
 
     return { manager, cookie, csrf: login.csrfToken, meta, mutateMeta };
   }
@@ -123,7 +127,7 @@ describe("rpc registry", () => {
     expect(memories.ok).toBe(true);
   });
 
-    it("rejects bad envelope", async () => {
+  it("rejects bad envelope", async () => {
     const { admin } = setupAdmin();
     const cases = [
       null,
@@ -134,11 +138,11 @@ describe("rpc registry", () => {
       { id: 1, method: "memory.list", params: {} },
     ];
     for (const envelope of cases) {
-      const r = await dispatchRpc(
-        admin,
-        envelope,
-        { ok: true, tokenId: "t", scopes: ["memory:read"] },
-      );
+      const r = await dispatchRpc(admin, envelope, {
+        ok: true,
+        tokenId: "t",
+        scopes: ["memory:read"],
+      });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.error.code).toBe("invalid_argument");
     }
@@ -154,11 +158,11 @@ describe("rpc registry", () => {
       { id: "5", method: "memory.get", params: { id: 123 } },
     ];
     for (const envelope of cases) {
-      const r = await dispatchRpc(
-        admin,
-        envelope,
-        { ok: true, tokenId: "t", scopes: ["memory:read"] },
-      );
+      const r = await dispatchRpc(admin, envelope, {
+        ok: true,
+        tokenId: "t",
+        scopes: ["memory:read"],
+      });
       expect(r.ok).toBe(false);
       if (!r.ok) expect(r.error.code).toBe("invalid_argument");
     }
@@ -284,6 +288,31 @@ describe("rpc registry", () => {
       expect(r.error.code).toBe("internal");
       expect(JSON.stringify(r.error)).not.toContain("secret.ts");
       expect(r.error.message).toBe("internal error");
+    }
+  });
+
+  it("rejects actor fields on conflict.resolve params", async () => {
+    const { admin } = setupAdmin();
+    const r = await dispatchRpc(
+      admin,
+      {
+        id: "1",
+        method: "conflict.resolve",
+        params: {
+          leftId: "a",
+          rightId: "b",
+          action: "keep_left",
+          leftUpdatedAt: "t",
+          rightUpdatedAt: "t",
+          actor: { kind: "cli" },
+        },
+      },
+      { ok: true, tokenId: "t", scopes: ["memory:resolve-conflict"] },
+    );
+    expect(r.ok).toBe(false);
+    if (!r.ok) {
+      expect(r.error.code).toBe("invalid_argument");
+      expect(r.error.message).toMatch(/actor/);
     }
   });
 

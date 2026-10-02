@@ -1,22 +1,18 @@
-import {
-  existsSync,
-  mkdirSync,
-  readFileSync,
-  readdirSync,
-  rmSync,
-} from "node:fs";
+import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync } from "node:fs";
 import { dirname, join } from "node:path";
-import matter from "gray-matter";
 import {
-  type MemoryRecord,
   MemoryFrontmatterSchema,
+  type MemoryRecord,
   assertWritableMemory,
   atomicWriteText,
   memoryPath,
   paths,
 } from "@amem/core";
-import { dropMemoryIndex, syncMemoryIndex } from "./sync.js";
+import matter from "gray-matter";
 import { crashHooks } from "./crash-hooks.js";
+import { scheduleEmbed } from "./embed-provider.js";
+import { serializeMemoryRecord } from "./serialize.js";
+import { dropMemoryIndex, syncMemoryIndex } from "./sync.js";
 
 export class MemoryStore {
   constructor(private readonly home: string) {}
@@ -25,13 +21,11 @@ export class MemoryStore {
     return memoryPath(this.home, m.scope.level, m.kind, m.id);
   }
 
-  write(
-    record: MemoryRecord,
-    source: "pipeline" | "human" | "agent-note" = "pipeline",
-  ): string {
+  write(record: MemoryRecord, source: "pipeline" | "human" | "agent-note" = "pipeline"): string {
     assertWritableMemory(record, source);
     const p = this.persist(record);
     syncMemoryIndex(this.home, record, p);
+    scheduleEmbed(this.home, record);
     return p;
   }
 
@@ -53,29 +47,22 @@ export class MemoryStore {
     return n;
   }
 
+  /**
+   * Write Markdown only (no index sync). For conflict journal coordinators
+   * that must reach markdown_committed before indexing.
+   */
+  persistMarkdownOnly(
+    record: MemoryRecord,
+    source: "pipeline" | "human" | "agent-note" = "human",
+  ): string {
+    assertWritableMemory(record, source);
+    return this.persist(record);
+  }
+
   private persist(record: MemoryRecord): string {
-    const fm = MemoryFrontmatterSchema.parse({
-      id: record.id,
-      kind: record.kind,
-      title: record.title,
-      applies_when: record.applies_when,
-      not_applies_when: record.not_applies_when,
-      scope: record.scope,
-      trust: record.trust,
-      status: record.status,
-      evidence: record.evidence,
-      stats: record.stats,
-      validity: record.validity,
-      supersedes: record.supersedes ?? null,
-      conflicts_with: record.conflicts_with ?? [],
-      created_by: record.created_by,
-      updated_at: record.updated_at,
-    });
     const p = this.pathFor(record);
     mkdirSync(dirname(p), { recursive: true });
-    const data = JSON.parse(JSON.stringify(fm)) as Record<string, unknown>;
-    const body = matter.stringify(record.content.trim() + "\n", data);
-    atomicWriteText(p, body);
+    atomicWriteText(p, serializeMemoryRecord(record));
     return p;
   }
 
@@ -120,10 +107,7 @@ export class MemoryStore {
    * Write record; if the same id already exists at a different path
    * (e.g. level promotion), write the new path first then remove the old path.
    */
-  upsert(
-    record: MemoryRecord,
-    source: "pipeline" | "human" | "agent-note" = "pipeline",
-  ): string {
+  upsert(record: MemoryRecord, source: "pipeline" | "human" | "agent-note" = "pipeline"): string {
     const oldPaths = this.listAll()
       .filter((m) => m.id === record.id)
       .map((m) => this.pathFor(m));

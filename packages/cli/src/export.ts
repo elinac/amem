@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import {
   cpSync,
   existsSync,
@@ -9,7 +10,6 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
-import { spawnSync } from "node:child_process";
 import { paths } from "@amem/core";
 import { ProposalStore } from "@amem/store";
 
@@ -34,11 +34,9 @@ function zipDir(sourceDir: string, zipPath: string): void {
   if (existsSync(zipPath)) rmSync(zipPath, { force: true });
 
   const tarBin = process.platform === "win32" ? winExe("tar") : "tar";
-  const tar = spawnSync(
-    tarBin,
-    ["-a", "-c", "-f", zipPath, "-C", sourceDir, "."],
-    { encoding: "utf8" },
-  );
+  const tar = spawnSync(tarBin, ["-a", "-c", "-f", zipPath, "-C", sourceDir, "."], {
+    encoding: "utf8",
+  });
   if (tar.status === 0 && existsSync(zipPath)) return;
 
   if (process.platform === "win32") {
@@ -48,11 +46,9 @@ function zipDir(sourceDir: string, zipPath: string): void {
 $ErrorActionPreference = 'Stop'
 Compress-Archive -LiteralPath (Get-ChildItem -LiteralPath '${src}' -Force | ForEach-Object FullName) -DestinationPath '${dest}' -Force
 `;
-    const r = spawnSync(
-      winExe("powershell"),
-      ["-NoProfile", "-NonInteractive", "-Command", ps],
-      { encoding: "utf8" },
-    );
+    const r = spawnSync(winExe("powershell"), ["-NoProfile", "-NonInteractive", "-Command", ps], {
+      encoding: "utf8",
+    });
     if (r.status === 0 && existsSync(zipPath)) return;
     throw new Error(
       `zip failed: ${r.stderr || r.stdout || tar.stderr || tar.stdout || tar.error || "unknown"}`,
@@ -82,9 +78,7 @@ function copySkill(home: string, name: string, destRoot: string): boolean {
 export function runExport(home: string, opts: ExportOptions): { out: string; items: string[] } {
   const outPath = resolve(opts.out);
   const wantZip = outPath.toLowerCase().endsWith(".zip");
-  const staging = wantZip
-    ? mkdtempSync(join(tmpdir(), "amem-export-"))
-    : outPath;
+  const staging = wantZip ? mkdtempSync(join(tmpdir(), "amem-export-")) : outPath;
 
   mkdirSync(staging, { recursive: true });
   const items: string[] = [];
@@ -97,7 +91,10 @@ export function runExport(home: string, opts: ExportOptions): { out: string; ite
             .filter((d) => d.isDirectory())
             .map((d) => d.name)
         : []
-      : opts.skills.split(",").map((s) => s.trim()).filter(Boolean);
+      : opts.skills
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean);
 
   for (const name of skillNames) {
     if (copySkill(home, name, staging)) items.push(`skills/${name}`);

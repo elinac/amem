@@ -1,11 +1,4 @@
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  renameSync,
-  writeFileSync,
-} from "node:fs";
+import { closeSync, fsyncSync, mkdirSync, openSync, renameSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 
 /**

@@ -1,5 +1,5 @@
-import { MemoryStore } from "@amem/store";
 import { listProposalsData, listSkillsData } from "@amem/compiler";
+import { MemoryStore } from "@amem/store";
 
 export type ListKind = "memories" | "skills" | "proposals" | "all";
 
@@ -9,8 +9,7 @@ function pad(s: string, n: number): string {
 }
 
 function printTable(headers: string[], rows: string[][], widths: number[]): void {
-  const line = (cells: string[]) =>
-    cells.map((c, i) => pad(c, widths[i]!)).join("  ");
+  const line = (cells: string[]) => cells.map((c, i) => pad(c, widths[i]!)).join("  ");
   console.log(line(headers));
   console.log(widths.map((w) => "-".repeat(w)).join("  "));
   for (const row of rows) console.log(line(row));
@@ -19,16 +18,18 @@ function printTable(headers: string[], rows: string[][], widths: number[]): void
 export function listMemories(home: string, limit = 50): void {
   const all = new MemoryStore(home).listAll();
   all.sort((a, b) => b.updated_at.localeCompare(a.updated_at));
-  const rows = all.slice(0, limit).map((m) => [
-    m.id,
-    m.kind,
-    m.scope.level,
-    m.trust,
-    m.status,
-    String(m.stats.helpful),
-    String(m.stats.harmful),
-    m.title,
-  ]);
+  const rows = all
+    .slice(0, limit)
+    .map((m) => [
+      m.id,
+      m.kind,
+      m.scope.level,
+      m.trust,
+      m.status,
+      String(m.stats.helpful),
+      String(m.stats.harmful),
+      m.title,
+    ]);
   console.log(`# memories (${all.length}${all.length > limit ? `, showing ${limit}` : ""})`);
   if (!rows.length) {
     console.log("(empty)");
@@ -57,11 +58,7 @@ export function listSkills(home: string): void {
 }
 
 export function listProposals(home: string): void {
-  const rows = listProposalsData(home).map((p) => [
-    p.id,
-    p.hasProposalMd ? "yes" : "no",
-    p.title,
-  ]);
+  const rows = listProposalsData(home).map((p) => [p.id, p.hasProposalMd ? "yes" : "no", p.title]);
   console.log(`# proposals (${rows.length})`);
   if (!rows.length) {
     console.log("(empty)");

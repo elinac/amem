@@ -15,14 +15,11 @@ export function normalizeClaudeHook(
   userId: string,
   redactPatterns: string[] = [],
 ): CanonicalEvent[] {
-  const raw = redactDeep(
-    typeof rawInput === "object" && rawInput ? rawInput : {},
-    "",
-    { patterns: redactPatterns },
-  ) as Record<string, unknown>;
+  const raw = redactDeep(typeof rawInput === "object" && rawInput ? rawInput : {}, "", {
+    patterns: redactPatterns,
+  }) as Record<string, unknown>;
   const name = eventName.replace(/^claude:/, "");
-  const session =
-    String(raw.session_id ?? raw.sessionId ?? raw.conversation_id ?? "unknown");
+  const session = String(raw.session_id ?? raw.sessionId ?? raw.conversation_id ?? "unknown");
   const roots = Array.isArray(raw.cwd)
     ? (raw.cwd as string[]).map(String)
     : raw.cwd
@@ -34,9 +31,7 @@ export function normalizeClaudeHook(
     host: "claude-code" as const,
     session_id: session,
     user_id: userId,
-    workspace: roots.length
-      ? { roots, instance_id: instanceIdFromWorkspace(roots) }
-      : undefined,
+    workspace: roots.length ? { roots, instance_id: instanceIdFromWorkspace(roots) } : undefined,
   };
 
   const lower = name.toLowerCase();

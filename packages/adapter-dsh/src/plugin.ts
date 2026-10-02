@@ -1,18 +1,18 @@
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { appendFileSync, mkdirSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, paths, isExcludedWorkspace } from "@amem/core";
+import { isExcludedWorkspace, loadConfig, paths } from "@amem/core";
 import { createAdmin } from "./admin.js";
 import { DshTokenStore } from "./auth-store.js";
 import { BrowserSessionManager } from "./browser-session.js";
-import { DshRequestAuth, readCsrfFromHeaders } from "./request-auth.js";
-import { dispatchRpc } from "./rpc.js";
 import {
+  type DshSessionMeta,
   normalizeDshLifecycle,
   normalizeDshSessionEvent,
-  type DshSessionMeta,
 } from "./normalize.js";
+import { DshRequestAuth, readCsrfFromHeaders } from "./request-auth.js";
+import { dispatchRpc } from "./rpc.js";
 import { appendCanonical, enqueueFlush, wakeWorker } from "./spool.js";
 
 /** Cordis Loader reads this from the host wrapper (re-exported). */
@@ -125,9 +125,14 @@ function sendJson(
 }
 
 function sendUnauth(res: ServerResponse): void {
-  sendJson(res, 401, { error: "unauthenticated", message: "unauthenticated" }, {
-    "cache-control": "no-store",
-  });
+  sendJson(
+    res,
+    401,
+    { error: "unauthenticated", message: "unauthenticated" },
+    {
+      "cache-control": "no-store",
+    },
+  );
 }
 
 function requestMeta(req: IncomingMessage): {
@@ -157,7 +162,6 @@ function rpcStatus(code: string): number {
       return 403;
     case "conflict":
       return 409;
-    case "internal":
     default:
       return 500;
   }
@@ -168,12 +172,8 @@ function rpcStatus(code: string): number {
  * Must not throw from session/created (DSH rolls back session on sync throw).
  */
 export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfig>): void {
-  const home =
-    config?.amemHome ??
-    process.env.AMEM_HOME ??
-    join(homedir(), ".amem");
-  const userId =
-    config?.userId ?? process.env.USERNAME ?? process.env.USER ?? "local";
+  const home = config?.amemHome ?? process.env.AMEM_HOME ?? join(homedir(), ".amem");
+  const userId = config?.userId ?? process.env.USERNAME ?? process.env.USER ?? "local";
   const cliPath = config?.cliPath;
 
   mkdirSync(paths(home).auth, { recursive: true });
@@ -191,7 +191,11 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
       safe(() => {
         const s = session as SessionLike;
         const meta = sessionMeta(s, userId);
-        if ((meta.workspace_roots ?? []).some((r) => isExcludedWorkspace(r, privacy.exclude_workspaces))) {
+        if (
+          (meta.workspace_roots ?? []).some((r) =>
+            isExcludedWorkspace(r, privacy.exclude_workspaces),
+          )
+        ) {
           return;
         }
         appendCanonical(home, meta.session_id, normalizeDshLifecycle("session_start", meta));
@@ -202,7 +206,11 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
       safe(() => {
         const s = session as SessionLike;
         const meta = sessionMeta(s, userId);
-        if ((meta.workspace_roots ?? []).some((r) => isExcludedWorkspace(r, privacy.exclude_workspaces))) {
+        if (
+          (meta.workspace_roots ?? []).some((r) =>
+            isExcludedWorkspace(r, privacy.exclude_workspaces),
+          )
+        ) {
           return;
         }
         const events = normalizeDshSessionEvent(event, meta, privacy.redact_patterns);

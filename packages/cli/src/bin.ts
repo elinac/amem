@@ -1,35 +1,44 @@
 #!/usr/bin/env node
 import {
+  copyFileSync,
   existsSync,
   mkdirSync,
   readFileSync,
-  writeFileSync,
-  copyFileSync,
   readdirSync,
+  writeFileSync,
 } from "node:fs";
-import { homedir } from "node:os";
+import { homedir, userInfo } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
-import {
-  amemHome,
-  configToToml,
-  defaultConfig,
-  loadConfig,
-  paths,
-} from "@amem/core";
-import { EpisodeStore, IndexStore, MemoryStore, ProposalStore, listConflicts, resolveConflict, INDEX_SCHEMA_VERSION, runDoctor, listFailedJobs, purgeFailedJobs } from "@amem/store";
+import { ingestCursorTranscripts } from "@amem/adapter-cursor";
+import { type DshAdminScope, DshTokenStore } from "@amem/adapter-dsh";
+import { compileCapabilities, materializeProposal } from "@amem/compiler";
+import { amemHome, configToToml, defaultConfig, loadConfig, paths } from "@amem/core";
+import { createLlmClient } from "@amem/llm";
 import {
   consolidate,
-  extractSession,
   enqueueFlush,
+  extractSession,
+  migrateConflicts,
   processQueue,
 } from "@amem/pipeline";
 import { buildContextPack, decideRecall, extractSituation, recall } from "@amem/retrieval";
-import { ingestCursorTranscripts } from "@amem/adapter-cursor";
-import { compileCapabilities, materializeProposal } from "@amem/compiler";
-import { DshTokenStore, type DshAdminScope } from "@amem/adapter-dsh";
-import { runList, type ListKind } from "./list.js";
+import {
+  EpisodeStore,
+  INDEX_SCHEMA_VERSION,
+  IndexStore,
+  MemoryStore,
+  ProposalStore,
+  gcManifests,
+  listConflicts,
+  listFailedJobs,
+  purgeFailedJobs,
+  resolveConflict,
+  runDoctor,
+  setEmbedProvider,
+} from "@amem/store";
 import { defaultExportName, runExport } from "./export.js";
+import { type ListKind, runList } from "./list.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -59,6 +68,8 @@ Usage:
   amem forget <id>
   amem conflict list
   amem conflict resolve <leftId> <rightId> keep_left|keep_right|keep_both
+  amem migrate conflicts [--dry-run]
+  amem gc-manifests [--days N]
   amem embed-backfill
 `);
 }
@@ -74,8 +85,7 @@ export function parseDurationMs(input: string): number {
   if (!Number.isInteger(value) || value <= 0) {
     throw new Error("duration must be a positive integer");
   }
-  const ms =
-    unit === "m" ? value * 60_000 : unit === "h" ? value * 3_600_000 : value * 86_400_000;
+  const ms = unit === "m" ? value * 60_000 : unit === "h" ? value * 3_600_000 : value * 86_400_000;
   const maxMs = 365 * 86_400_000;
   if (ms > maxMs) {
     throw new Error("duration cannot exceed 365 days");
@@ -88,7 +98,10 @@ export function runAuthIssue(
   target: string,
   scopesRaw: string,
   ttlRaw: string,
-): { token: string; record: { id: string; scopes: DshAdminScope[]; createdAt: string; expiresAt: string } } {
+): {
+  token: string;
+  record: { id: string; scopes: DshAdminScope[]; createdAt: string; expiresAt: string };
+} {
   if (target !== "dsh") {
     throw new Error("issue only supports --target dsh");
   }
@@ -100,7 +113,14 @@ export function runAuthIssue(
   return new DshTokenStore(home).issue(scopes, ttlMs);
 }
 
-export function runAuthList(home: string): { id: string; scopes: DshAdminScope[]; createdAt: string; expiresAt: string; lastUsedAt?: string; revokedAt?: string }[] {
+export function runAuthList(home: string): {
+  id: string;
+  scopes: DshAdminScope[];
+  createdAt: string;
+  expiresAt: string;
+  lastUsedAt?: string;
+  revokedAt?: string;
+}[] {
   return new DshTokenStore(home).list();
 }
 
@@ -435,7 +455,12 @@ async function main(): Promise<void> {
       return;
     }
     if (host !== "cursor") {
-      console.log(JSON.stringify({ ok: false, message: `install for ${host} is stub — copy MCP config manually` }));
+      console.log(
+        JSON.stringify({
+          ok: false,
+          message: `install for ${host} is stub — copy MCP config manually`,
+        }),
+      );
       return;
     }
     const hookSrc = join(__dirname, "../../adapter-cursor/hooks/amem-hook.mjs");
@@ -443,7 +468,17 @@ async function main(): Promise<void> {
     mkdirSync(dirname(hookDest), { recursive: true });
     // prefer packaged hook next to source during dev
     const candidates = [
-      join(home, "..", "dev", "workspaces", "amem", "packages", "adapter-cursor", "hooks", "amem-hook.mjs"),
+      join(
+        home,
+        "..",
+        "dev",
+        "workspaces",
+        "amem",
+        "packages",
+        "adapter-cursor",
+        "hooks",
+        "amem-hook.mjs",
+      ),
       join(process.cwd(), "packages", "adapter-cursor", "hooks", "amem-hook.mjs"),
       hookSrc,
     ];
@@ -479,8 +514,7 @@ async function main(): Promise<void> {
     // Merge production hook into ~/.cursor/hooks.json (preserve gsd-managed; replace amem-probe)
     const hooksPath = join(homedir(), ".cursor", "hooks.json");
     const nodeExe = process.execPath.replace(/\\/g, "/");
-    const hookCmd = (ev: string) =>
-      `"${nodeExe}" "${hookDest.replace(/\\/g, "/")}" ${ev}`;
+    const hookCmd = (ev: string) => `"${nodeExe}" "${hookDest.replace(/\\/g, "/")}" ${ev}`;
     const amemEvents = [
       "sessionStart",
       "postToolUse",
@@ -493,8 +527,10 @@ async function main(): Promise<void> {
       "preCompact",
       "stop",
     ] as const;
-    let hooksDoc: { version?: number; hooks?: Record<string, Array<Record<string, unknown>>> } =
-      { version: 1, hooks: {} };
+    let hooksDoc: { version?: number; hooks?: Record<string, Array<Record<string, unknown>>> } = {
+      version: 1,
+      hooks: {},
+    };
     if (existsSync(hooksPath)) {
       try {
         hooksDoc = JSON.parse(readFileSync(hooksPath, "utf8")) as typeof hooksDoc;
@@ -512,7 +548,7 @@ async function main(): Promise<void> {
       list.push({ type: "command", command: hookCmd(ev), timeout: 5 });
       hooksDoc.hooks[ev] = list;
     }
-    writeFileSync(hooksPath, JSON.stringify(hooksDoc, null, 2) + "\n");
+    writeFileSync(hooksPath, `${JSON.stringify(hooksDoc, null, 2)}\n`);
 
     console.log(
       JSON.stringify(
@@ -638,13 +674,17 @@ async function main(): Promise<void> {
       const left = store.readById(leftId);
       const right = store.readById(rightId);
       if (!left || !right) throw new Error("not_found");
-      const result = resolveConflict(home, {
-        leftId,
-        rightId,
-        action,
-        leftUpdatedAt: left.updated_at,
-        rightUpdatedAt: right.updated_at,
-      });
+      const result = resolveConflict(
+        home,
+        {
+          leftId,
+          rightId,
+          action,
+          leftUpdatedAt: left.updated_at,
+          rightUpdatedAt: right.updated_at,
+        },
+        { kind: "cli", os_user: userInfo().username },
+      );
       console.log(
         JSON.stringify(
           {
@@ -660,14 +700,36 @@ async function main(): Promise<void> {
     throw new Error("usage: amem conflict list | resolve ...");
   }
 
+  if (cmd === "migrate") {
+    const sub = argv[1];
+    if (sub !== "conflicts") {
+      throw new Error("usage: amem migrate conflicts [--dry-run]");
+    }
+    const dryRun = argv.includes("--dry-run");
+    const report = migrateConflicts(home, {
+      dryRun,
+      actor: { kind: "cli", os_user: userInfo().username },
+    });
+    console.log(JSON.stringify(report, null, 2));
+    return;
+  }
+
+  if (cmd === "gc-manifests") {
+    const daysIdx = argv.indexOf("--days");
+    const days = daysIdx >= 0 ? Number(argv[daysIdx + 1]) : 14;
+    if (!Number.isFinite(days) || days < 1) throw new Error("--days must be a positive number");
+    console.log(JSON.stringify(gcManifests(home, { maxAgeDays: days }), null, 2));
+    return;
+  }
+
   if (cmd === "embed-backfill") {
     const cfg = loadConfig(home);
     if (!cfg.embedding.enabled) {
       throw new Error("set [embedding] enabled = true in amem.toml first");
     }
-    const { createLlmClient } = await import("@amem/llm");
     const client = createLlmClient(cfg);
     if (!client.embedTexts) throw new Error("llm client cannot embed");
+    setEmbedProvider((texts) => client.embedTexts!(texts));
     const store = new MemoryStore(home);
     const idx = new IndexStore(home);
     let n = 0;
@@ -689,7 +751,9 @@ async function main(): Promise<void> {
     const q = argv[1] ?? "";
     const cfg = loadConfig(home);
     const sit = extractSituation({ query: q, userId: cfg.identity.user_id });
-    console.log(JSON.stringify(buildContextPack({ home, cfg, situation: sit, sessionId: "cli" }), null, 2));
+    console.log(
+      JSON.stringify(buildContextPack({ home, cfg, situation: sit, sessionId: "cli" }), null, 2),
+    );
     return;
   }
 

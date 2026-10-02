@@ -25,12 +25,7 @@ export function paths(home = amemHome()) {
   } as const;
 }
 
-export function memoryPath(
-  home: string,
-  level: string,
-  kind: string,
-  id: string,
-): string {
+export function memoryPath(home: string, level: string, kind: string, id: string): string {
   if (!isSafeId(id)) throw new Error(`unsafe memory id: ${JSON.stringify(id)}`);
   return join(home, "memories", level, kind, `${id}.md`);
 }

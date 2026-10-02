@@ -1,5 +1,5 @@
-import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { type CanonicalEvent, sanitizeId } from "@amem/core";
 import { enqueueFlush as pipelineEnqueueFlush } from "@amem/pipeline";

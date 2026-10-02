@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import type { MemoryRecord } from "@amem/core";
 import { MemoryStore } from "@amem/store";
+import { afterEach, describe, expect, it } from "vitest";
 import { createToolHandlers } from "./handlers.js";
 
 const homes: string[] = [];
@@ -77,7 +77,9 @@ describe("gateway-mcp handlers", () => {
     const home = mkdtempSync(join(tmpdir(), "amem-mcp-"));
     homes.push(home);
     const h = createToolHandlers(home);
-    await expect(h.memory_note({ kind: "nope", title: "t", content: "c", applies_when: "a" })).rejects.toThrow();
+    await expect(
+      h.memory_note({ kind: "nope", title: "t", content: "c", applies_when: "a" }),
+    ).rejects.toThrow();
     await expect(h.memory_feedback({ id: "x", verdict: "maybe" })).rejects.toThrow();
   });
 

@@ -26,7 +26,6 @@ jobs:
       - run: pnpm run accept:dsh-admin
       - run: pnpm run accept:dsh-session
       - run: pnpm run eval:recall
+      - run: pnpm run lint:src
       - run: pnpm run smoke:dsh-session
-        continue-on-error: true
-      - run: pnpm run lint
         continue-on-error: true

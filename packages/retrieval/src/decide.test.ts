@@ -1,5 +1,5 @@
-import { describe, expect, it } from "vitest";
 import type { MemoryRecord } from "@amem/core";
+import { describe, expect, it } from "vitest";
 import { decideRecall, injectableDecisions } from "./decide.js";
 
 function mem(
@@ -50,5 +50,12 @@ describe("decideRecall", () => {
     expect(injectableDecisions(decideRecall(hits, "shadow"), "shadow")).toEqual([]);
     const en = injectableDecisions(decideRecall(hits, "enforce"), "enforce");
     expect(en.map((x) => x.memory.id)).toEqual(["t2"]);
+  });
+
+  it("blocks journal_pending ids even when active", () => {
+    const hits = [{ memory: mem({ id: "j1", status: "active", trust: "T2" }), score: 0.9 }];
+    const d = decideRecall(hits, "assist", { blockedIds: new Set(["j1"]) });
+    expect(d[0]?.decision).toBe("ignore");
+    expect(d[0]?.reason).toBe("journal_pending");
   });
 });

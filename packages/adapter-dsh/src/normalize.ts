@@ -38,9 +38,7 @@ function base(
     host_version: meta.host_version,
     session_id: meta.session_id,
     turn_id: data.turn != null ? String(data.turn) : undefined,
-    workspace: roots.length
-      ? { roots, instance_id: instanceIdFromWorkspace(roots) }
-      : undefined,
+    workspace: roots.length ? { roots, instance_id: instanceIdFromWorkspace(roots) } : undefined,
     user_id: meta.user_id,
   };
 }
@@ -64,10 +62,7 @@ export function normalizeDshSessionEvent(
     data?: unknown;
   };
   const type = typeof ev.type === "string" ? ev.type : "";
-  const data =
-    ev.data && typeof ev.data === "object"
-      ? (ev.data as Record<string, unknown>)
-      : {};
+  const data = ev.data && typeof ev.data === "object" ? (ev.data as Record<string, unknown>) : {};
   const time = typeof ev.time === "number" ? ev.time : undefined;
   const b = base(meta, data, time);
 
@@ -97,12 +92,14 @@ export function normalizeDshSessionEvent(
     ];
   }
   if (type === "tool/result") {
-    const msg = data.message as {
-      content?: unknown;
-      toolCallId?: unknown;
-      isError?: unknown;
-      source?: { callId?: unknown };
-    } | undefined;
+    const msg = data.message as
+      | {
+          content?: unknown;
+          toolCallId?: unknown;
+          isError?: unknown;
+          source?: { callId?: unknown };
+        }
+      | undefined;
     return [
       {
         ...b,

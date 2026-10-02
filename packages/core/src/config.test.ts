@@ -1,5 +1,5 @@
 // packages/core/src/config.test.ts
-import { mkdtempSync, readFileSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -62,10 +62,7 @@ allowed_origins = "http://127.0.0.1:3000"
 session_ttl_minutes = 30
 auth_failure_limit = 3
 `);
-    expect(parsed.dsh.admin.allowed_origins).toEqual([
-      "http://127.0.0.1",
-      "http://localhost",
-    ]);
+    expect(parsed.dsh.admin.allowed_origins).toEqual(["http://127.0.0.1", "http://localhost"]);
     expect(parsed.dsh.admin.session_ttl_minutes).toBe(30);
     expect(parsed.dsh.admin.auth_failure_limit).toBe(3);
   });
@@ -139,7 +136,13 @@ describe("validate + merge overlay", () => {
     base.embedding.enabled = true;
     base.embedding.model = "keep-me";
     const out = mergeConfigOverlay(base, {
-      llm: { mode: "host", base_url: "", model: "", api_key: "sk-test", api_key_env: "AMEM_LLM_KEY" },
+      llm: {
+        mode: "host",
+        base_url: "",
+        model: "",
+        api_key: "sk-test",
+        api_key_env: "AMEM_LLM_KEY",
+      },
     });
     expect(out.embedding.model).toBe("keep-me");
     expect(out.llm.mode).toBe("host");
@@ -182,13 +185,16 @@ describe("resolveLlmApiKey", () => {
     cfg.llm.api_key = "sk-inline";
     process.env.AMEM_LLM_KEY = "sk-env";
     expect(resolveLlmApiKey(cfg)).toBe("sk-inline");
+    // biome-ignore lint/performance/noDelete: must unset env key (assigning undefined stringifies)
     delete process.env.AMEM_LLM_KEY;
   });
 });
 
 describe("llmApiKeySource", () => {
   afterEach(() => {
+    // biome-ignore lint/performance/noDelete: must unset env key (assigning undefined stringifies)
     delete process.env.AMEM_LLM_KEY;
+    // biome-ignore lint/performance/noDelete: must unset env key (assigning undefined stringifies)
     delete process.env.AMEM_TEST_ABSENT_KEY;
   });
 
@@ -343,8 +349,8 @@ exclude_workspaces = ["/ws"]
   it("preserves privacy when disk block ends without trailing newline", () => {
     home = mkdtempSync(join(tmpdir(), "amem-cfg-"));
     mkdirSync(home, { recursive: true });
-    const initial =
-      configToToml(defaultConfig()).replace(
+    const initial = configToToml(defaultConfig())
+      .replace(
         `[privacy]
 redact_patterns = []
 exclude_workspaces = []
@@ -353,7 +359,8 @@ exclude_workspaces = []
 redact_patterns = ["TOKEN"]
 exclude_workspaces = ["/ws"]
 `,
-      ).replace(/\n$/, "");
+      )
+      .replace(/\n$/, "");
     writeFileSync(join(home, "amem.toml"), initial);
     const cfg = loadConfig(home);
     cfg.llm.mode = "host";

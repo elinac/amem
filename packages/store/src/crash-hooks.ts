@@ -11,6 +11,8 @@ export type CrashHooks = {
   afterSealEvents?: (ctx: { eventsPath: string; episodeId: string }) => void;
   /** After SKILL.md is written in staging, before capability.yaml. */
   afterApplySkill?: (ctx: { stagingDir: string; skillName: string }) => void;
+  /** After left target MD written in conflict journal, before right. */
+  afterConflictLeftWrite?: (ctx: { txId: string; leftId: string }) => void;
 };
 
 let hooks: CrashHooks = {};

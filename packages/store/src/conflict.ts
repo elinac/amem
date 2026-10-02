@@ -42,40 +42,25 @@ function clearLink(m: MemoryRecord, otherId: string): MemoryRecord {
 }
 
 /**
- * Resolve a conflict pair. Optimistic concurrency via updated_at.
- * keep_both: audit-only semantics — leaves both as conflict (injection still blocked).
+ * Pure: compute post-resolve target records (no I/O).
+ * keep_both: bump updated_at only; leave conflict edges.
  */
-export function resolveConflict(
-  home: string,
-  input: {
-    leftId: string;
-    rightId: string;
-    action: ResolveConflictAction;
-    leftUpdatedAt: string;
-    rightUpdatedAt: string;
-  },
+export function computeResolveTargets(
+  left: MemoryRecord,
+  right: MemoryRecord,
+  action: ResolveConflictAction,
+  now = new Date().toISOString(),
 ): { left: MemoryRecord; right: MemoryRecord } {
-  const store = new MemoryStore(home);
-  const left = store.readById(input.leftId);
-  const right = store.readById(input.rightId);
-  if (!left || !right) throw new Error("not_found");
-  if (left.updated_at !== input.leftUpdatedAt || right.updated_at !== input.rightUpdatedAt) {
-    throw new Error("conflict_version_mismatch");
-  }
   if (!linked(left, right)) throw new Error("not_a_conflict_pair");
 
-  const now = new Date().toISOString();
-
-  if (input.action === "keep_both") {
-    // Explicit human acknowledgment; do not clear edges.
-    const l = { ...left, updated_at: now };
-    const r = { ...right, updated_at: now };
-    store.write(l, "human");
-    store.write(r, "human");
-    return { left: l, right: r };
+  if (action === "keep_both") {
+    return {
+      left: { ...left, updated_at: now },
+      right: { ...right, updated_at: now },
+    };
   }
 
-  const keepLeft = input.action === "keep_left";
+  const keepLeft = action === "keep_left";
   let winner = clearLink(keepLeft ? left : right, keepLeft ? right.id : left.id);
   let loser = clearLink(keepLeft ? right : left, keepLeft ? left.id : right.id);
   loser = {
@@ -89,7 +74,5 @@ export function resolveConflict(
     status: (winner.conflicts_with ?? []).length === 0 ? "active" : "conflict",
     updated_at: now,
   };
-  store.write(winner, "human");
-  store.write(loser, "human");
   return keepLeft ? { left: winner, right: loser } : { left: loser, right: winner };
 }

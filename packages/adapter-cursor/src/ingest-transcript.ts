@@ -27,8 +27,15 @@ export async function* ingestCursorTranscripts(
   const instance_id = roots.length ? instanceIdFromWorkspace(roots) : undefined;
 
   for (const file of files) {
-    const sessionId = file.replace(/\\/g, "/").split("/").pop()!.replace(/\.jsonl$/, "");
-    const rl = createInterface({ input: createReadStream(file, "utf8"), crlfDelay: Infinity });
+    const sessionId = file
+      .replace(/\\/g, "/")
+      .split("/")
+      .pop()!
+      .replace(/\.jsonl$/, "");
+    const rl = createInterface({
+      input: createReadStream(file, "utf8"),
+      crlfDelay: Number.POSITIVE_INFINITY,
+    });
     for await (const line of rl) {
       if (!line.trim()) continue;
       let obj: Record<string, unknown>;

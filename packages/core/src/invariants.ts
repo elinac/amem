@@ -11,7 +11,10 @@ export class InvariantError extends Error {
 }
 
 /** I2/I5: pipeline may not create T1 or promote preference / write L3 markers */
-export function assertWritableMemory(m: Pick<MemoryRecord, "kind" | "trust" | "status" | "scope">, source: "pipeline" | "human" | "agent-note"): void {
+export function assertWritableMemory(
+  m: Pick<MemoryRecord, "kind" | "trust" | "status" | "scope">,
+  source: "pipeline" | "human" | "agent-note",
+): void {
   if (source === "pipeline" || source === "agent-note") {
     if (m.trust === "T1") {
       throw new InvariantError("I2", "automatic writers cannot create T1 trust");
@@ -44,9 +47,6 @@ export function contextLayerPriority(layer: string): number {
 }
 
 /** I3: every evidence quote must appear verbatim in episode text blob */
-export function evidenceQuotesValid(
-  quotes: { quote: string }[],
-  episodeBlob: string,
-): boolean {
+export function evidenceQuotesValid(quotes: { quote: string }[], episodeBlob: string): boolean {
   return quotes.every((q) => q.quote.length > 0 && episodeBlob.includes(q.quote));
 }

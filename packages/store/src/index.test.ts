@@ -1,18 +1,18 @@
 import { existsSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, expect, it, afterEach } from "vitest";
-import { newId, type CanonicalEvent, type MemoryRecord } from "@amem/core";
+import { type CanonicalEvent, type MemoryRecord, newId } from "@amem/core";
+import { afterEach, describe, expect, it } from "vitest";
 import {
   EpisodeStore,
-  MemoryStore,
-  IndexStore,
   INDEX_SCHEMA_VERSION,
+  IndexStore,
+  MemoryStore,
   ProposalStore,
-  resolveConflict,
-  setCrashHooks,
   clearCrashHooks,
   rebuildMemoryIndex,
+  resolveConflict,
+  setCrashHooks,
 } from "./index.js";
 
 const homes: string[] = [];
@@ -26,7 +26,9 @@ afterEach(() => {
   for (const h of homes.splice(0)) rmSync(h, { recursive: true, force: true });
 });
 
-function ev(partial: Partial<CanonicalEvent> & Pick<CanonicalEvent, "type" | "session_id">): CanonicalEvent {
+function ev(
+  partial: Partial<CanonicalEvent> & Pick<CanonicalEvent, "type" | "session_id">,
+): CanonicalEvent {
   return {
     v: 1,
     ts: new Date().toISOString(),
@@ -292,7 +294,9 @@ describe("crash windows", () => {
         throw new Error("crash after upsert write");
       },
     });
-    expect(() => mem.upsert(baseMem("mem_crash", "domain"), "pipeline")).toThrow(/crash after upsert/);
+    expect(() => mem.upsert(baseMem("mem_crash", "domain"), "pipeline")).toThrow(
+      /crash after upsert/,
+    );
     const hit = mem.readById("mem_crash");
     expect(hit).not.toBeNull();
     expect(hit!.scope.level).toBe("domain");

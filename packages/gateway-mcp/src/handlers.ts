@@ -1,14 +1,24 @@
-import { z } from "zod";
+import { appendFileSync, mkdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 import {
+  MemoryKindSchema,
+  type MemoryRecord,
   amemHome,
   loadConfig,
   newId,
-  MemoryKindSchema,
-  type MemoryRecord,
+  paths,
 } from "@amem/core";
-import { MemoryStore } from "@amem/store";
-import { buildContextPack, decideRecall, extractSituation, recall, recallAsync } from "@amem/retrieval";
 import { enqueueFlush } from "@amem/pipeline";
+import {
+  buildContextPack,
+  decideRecall,
+  extractSituation,
+  getOrCreateEpochPack,
+  recall,
+  recallAsync,
+} from "@amem/retrieval";
+import { MemoryStore } from "@amem/store";
+import { z } from "zod";
 
 export type ToolResult = {
   content: { type: "text"; text: string }[];
@@ -44,6 +54,8 @@ const FeedbackArgs = z.object({
   id: z.string().min(1),
   verdict: z.enum(["helpful", "harmful"]),
   reason: z.string().optional(),
+  /** Optional linkage to a gate decision; does not drive mode machine (W3). */
+  decision_id: z.string().optional(),
 });
 
 const FlushArgs = z.object({
@@ -54,6 +66,7 @@ const PackArgs = z.object({
   query: z.string().min(1),
   budget: z.number().int().positive().max(100_000).optional(),
   session_id: z.string().optional(),
+  epoch_id: z.string().optional(),
 });
 
 export function createToolHandlers(home = amemHome()) {
@@ -124,9 +137,7 @@ export function createToolHandlers(home = amemHome()) {
         status: "candidate",
         evidence: {
           episodes: [],
-          quotes: parsed.evidence_hint
-            ? [{ ep: "agent-note", text: parsed.evidence_hint }]
-            : [],
+          quotes: parsed.evidence_hint ? [{ ep: "agent-note", text: parsed.evidence_hint }] : [],
           count: 0,
           distinct_instances: 1,
           distinct_domains: 1,
@@ -149,11 +160,24 @@ export function createToolHandlers(home = amemHome()) {
         m.stats.adopted += 1;
       } else m.stats.harmful += 1;
       const total = m.stats.helpful + m.stats.harmful;
-      m.stats.lift =
-        total >= 5 ? (m.stats.helpful - m.stats.harmful) / total : m.stats.lift;
+      m.stats.lift = total >= 5 ? (m.stats.helpful - m.stats.harmful) / total : m.stats.lift;
       m.updated_at = new Date().toISOString();
       store.write(m, "human");
-      return text({ ok: true, stats: m.stats });
+      if (parsed.decision_id) {
+        const p = join(paths(home).manifests, "audit", "feedback-decisions.jsonl");
+        mkdirSync(dirname(p), { recursive: true });
+        appendFileSync(
+          p,
+          `${JSON.stringify({
+            ts: new Date().toISOString(),
+            memory_id: parsed.id,
+            decision_id: parsed.decision_id,
+            verdict: parsed.verdict,
+            reason: parsed.reason ?? null,
+          })}\n`,
+        );
+      }
+      return text({ ok: true, stats: m.stats, decision_id: parsed.decision_id ?? null });
     },
     async memory_flush(args: unknown) {
       const parsed = FlushArgs.parse(args ?? {});
@@ -176,13 +200,23 @@ export function createToolHandlers(home = amemHome()) {
         userId: c.identity.user_id,
       });
       return text(
-        buildContextPack({
-          home,
-          cfg: cfgLocal,
-          situation: sit,
-          sessionId: parsed.session_id ?? "mcp",
-          trackStats: true,
-        }),
+        parsed.epoch_id
+          ? getOrCreateEpochPack({
+              home,
+              cfg: cfgLocal,
+              situation: sit,
+              userId: c.identity.user_id,
+              sessionId: parsed.session_id ?? "mcp",
+              epochId: parsed.epoch_id,
+              host: "cursor",
+            }).pack
+          : buildContextPack({
+              home,
+              cfg: cfgLocal,
+              situation: sit,
+              sessionId: parsed.session_id ?? "mcp",
+              trackStats: true,
+            }),
       );
     },
   };

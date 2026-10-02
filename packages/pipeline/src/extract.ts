@@ -6,8 +6,8 @@ import {
   evidenceQuotesValid,
   newId,
 } from "@amem/core";
-import { EpisodeStore, IndexStore, MemoryStore } from "@amem/store";
 import { createLlmClient } from "@amem/llm";
+import { EpisodeStore, IndexStore, MemoryStore } from "@amem/store";
 import { externalEventLines, verifiedCandidateEvidence } from "./verify.js";
 
 export type ReconcileAction = "ADD" | "UPDATE" | "NOOP" | "CONFLICT";
@@ -22,8 +22,7 @@ export function reconcile(
   for (const m of existing) {
     if (m.kind !== candidate.kind) continue;
     const same =
-      norm(m.title) === cTitle ||
-      (norm(m.applies_when) === cApplies && cApplies.length > 10);
+      norm(m.title) === cTitle || (norm(m.applies_when) === cApplies && cApplies.length > 10);
     if (!same) continue;
     // conflict if content disagrees strongly
     if (
@@ -115,10 +114,7 @@ export async function extractSession(
       continue;
     }
     const decision = reconcile(c, existing);
-    if (
-      decision.target &&
-      (decision.action === "UPDATE" || decision.action === "NOOP")
-    ) {
+    if (decision.target && (decision.action === "UPDATE" || decision.action === "NOOP")) {
       addEvidence(decision.target, meta, c.evidence);
       promoteIfValidated(decision.target, meta);
       memories.write(decision.target, "pipeline");
@@ -163,7 +159,7 @@ export async function extractSession(
         valid_from: new Date().toISOString().slice(0, 10),
       },
       supersedes: null,
-      created_by: `pipeline-extract@0.1.0`,
+      created_by: "pipeline-extract@0.1.0",
       updated_at: new Date().toISOString(),
     };
     if (decision.action === "CONFLICT" && decision.target) {

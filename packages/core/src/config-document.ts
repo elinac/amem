@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs";
 import {
+  type AmemConfig,
   extractEditableConfigPatch,
   llmApiKeySource,
   loadConfig,
@@ -7,7 +8,6 @@ import {
   resolveLlmApiKey,
   validateEditableConfigPatch,
   writeAmemConfigFile,
-  type AmemConfig,
 } from "./config.js";
 import { paths } from "./paths.js";
 

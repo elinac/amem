@@ -14,4 +14,15 @@ export {
   demote,
   promoteLevel,
 } from "./consolidate.js";
-export { enqueueFlush, processQueue, createFlushJob, parseFlushJob, type FlushJob } from "./worker.js";
+export {
+  enqueueFlush,
+  processQueue,
+  createFlushJob,
+  parseFlushJob,
+  type FlushJob,
+} from "./worker.js";
+export {
+  migrateConflicts,
+  readMigrateReport,
+  type MigrateConflictsReport,
+} from "./migrate-conflicts.js";

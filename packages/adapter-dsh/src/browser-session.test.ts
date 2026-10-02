@@ -1,14 +1,14 @@
 import { mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
 import { paths } from "@amem/core";
+import { afterEach, describe, expect, it } from "vitest";
 import { DshTokenStore } from "./auth-store.js";
 import {
   BrowserSessionManager,
-  isMutating,
   type LoginInput,
   type RequestMeta,
+  isMutating,
 } from "./browser-session.js";
 
 const homes: string[] = [];
@@ -27,11 +27,15 @@ function setup(): { home: string; store: DshTokenStore; manager: BrowserSessionM
   homes.push(home);
   mkdirSync(paths(home).auth, { recursive: true });
   const store = new DshTokenStore(home);
-  const manager = new BrowserSessionManager(home, {
-    allowed_origins: ["http://127.0.0.1:3000", "http://localhost:3000", "https://example.com"],
-    session_ttl_minutes: 480,
-    auth_failure_limit: 3,
-  }, store);
+  const manager = new BrowserSessionManager(
+    home,
+    {
+      allowed_origins: ["http://127.0.0.1:3000", "http://localhost:3000", "https://example.com"],
+      session_ttl_minutes: 480,
+      auth_failure_limit: 3,
+    },
+    store,
+  );
   return { home, store, manager };
 }
 
@@ -179,29 +183,39 @@ describe("BrowserSessionManager", () => {
     const result2 = manager.login({ bearer: longToken.token, ...loginMeta() });
     expect(result2.ok).toBe(true);
     if (!result2.ok) return;
-    expect(new Date(result2.expiresAt).getTime()).toBeLessThanOrEqual(before + 480 * 60 * 1000 + 5000);
+    expect(new Date(result2.expiresAt).getTime()).toBeLessThanOrEqual(
+      before + 480 * 60 * 1000 + 5000,
+    );
   });
 
   it("rejects origin, host and sec-fetch-site mismatches", () => {
     const { store, manager } = setup();
     const { token } = store.issue(["memory:read", "config:write"], 60 * 60 * 1000);
 
-    expect(manager.login({ bearer: token, origin: "http://evil.com", host: "evil.com" }).ok).toBe(false);
-    expect(manager.login({ bearer: token, origin: "http://127.0.0.1:3000", host: "localhost:3000" }).ok).toBe(false);
+    expect(manager.login({ bearer: token, origin: "http://evil.com", host: "evil.com" }).ok).toBe(
+      false,
+    );
+    expect(
+      manager.login({ bearer: token, origin: "http://127.0.0.1:3000", host: "localhost:3000" }).ok,
+    ).toBe(false);
 
     const ok = manager.login({ bearer: token, ...loginMeta() });
     expect(ok.ok).toBe(true);
     if (!ok.ok) return;
 
-    const read = manager.authenticate(cookieValue(ok.cookie), undefined, ["memory:read"], loginMeta());
+    const read = manager.authenticate(
+      cookieValue(ok.cookie),
+      undefined,
+      ["memory:read"],
+      loginMeta(),
+    );
     expect(read.ok).toBe(true);
 
-    const crossSite = manager.authenticate(
-      cookieValue(ok.cookie),
-      ok.csrfToken,
-      ["config:write"],
-      { origin: "http://127.0.0.1:3000", host: "127.0.0.1:3000", secFetchSite: "cross-site" },
-    );
+    const crossSite = manager.authenticate(cookieValue(ok.cookie), ok.csrfToken, ["config:write"], {
+      origin: "http://127.0.0.1:3000",
+      host: "127.0.0.1:3000",
+      secFetchSite: "cross-site",
+    });
     expect(crossSite.ok).toBe(false);
 
     const sameOriginMutate = manager.authenticate(
@@ -236,7 +250,12 @@ describe("BrowserSessionManager", () => {
     const mutateNoCsrf = manager.authenticate(cookie, undefined, ["config:write"], mutateMeta());
     expect(mutateNoCsrf.ok).toBe(false);
 
-    const mutateWrongCsrf = manager.authenticate(cookie, "wrong-csrf", ["config:write"], mutateMeta());
+    const mutateWrongCsrf = manager.authenticate(
+      cookie,
+      "wrong-csrf",
+      ["config:write"],
+      mutateMeta(),
+    );
     expect(mutateWrongCsrf.ok).toBe(false);
 
     const mutateOk = manager.authenticate(cookie, login.csrfToken, ["config:write"], mutateMeta());
@@ -255,7 +274,12 @@ describe("BrowserSessionManager", () => {
     if (!fresh.ok) return;
     expect(fresh.csrfToken).not.toBe(login.csrfToken);
 
-    const mutate = manager.authenticate(cookieValue(login.cookie), fresh.csrfToken, ["memory:forget"], mutateMeta());
+    const mutate = manager.authenticate(
+      cookieValue(login.cookie),
+      fresh.csrfToken,
+      ["memory:forget"],
+      mutateMeta(),
+    );
     expect(mutate.ok).toBe(true);
   });
 

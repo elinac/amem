@@ -1,12 +1,12 @@
 import { EventEmitter } from "node:events";
-import type { IncomingMessage, ServerResponse } from "node:http";
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { configToToml, defaultConfig, paths } from "@amem/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { DshTokenStore } from "./auth-store.js";
-import { apply, type DshPluginContext } from "./plugin.js";
+import { type DshPluginContext, apply } from "./plugin.js";
 
 type ApiHandler = (req: IncomingMessage, res: ServerResponse) => void | Promise<void>;
 
@@ -87,7 +87,8 @@ describe("apply capture fail-open", () => {
     const handlers: Record<string, Array<(...a: unknown[]) => unknown>> = {};
     const ctx: DshPluginContext = {
       on: (event, handler) => {
-        (handlers[event] ??= []).push(handler);
+        if (!handlers[event]) handlers[event] = [];
+        handlers[event].push(handler);
       },
     };
     apply(ctx, { amemHome: "C:\\does-not-exist-amem-home-xyz" });
@@ -441,7 +442,10 @@ describe("/amem-api independent auth routes", () => {
 
   it("runs config.put with DSH same-site headers when auth is enabled", async () => {
     const home = tempAmemHome(true);
-    const { token } = new DshTokenStore(home).issue(["config:write", "config:read"], 60 * 60 * 1000);
+    const { token } = new DshTokenStore(home).issue(
+      ["config:write", "config:read"],
+      60 * 60 * 1000,
+    );
     const handler = mountHandler(home);
 
     const login = mockRes();
@@ -478,7 +482,10 @@ describe("/amem-api independent auth routes", () => {
 
   it("accepts legacy x-amem-csrf header for mutating RPC", async () => {
     const home = tempAmemHome(true);
-    const { token } = new DshTokenStore(home).issue(["config:write", "config:read"], 60 * 60 * 1000);
+    const { token } = new DshTokenStore(home).issue(
+      ["config:write", "config:read"],
+      60 * 60 * 1000,
+    );
     const handler = mountHandler(home);
 
     const login = mockRes();

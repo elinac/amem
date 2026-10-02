@@ -17,3 +17,9 @@ export {
   type RecallHit,
   type ScoreParts,
 } from "./decide.js";
+export {
+  getOrCreateEpochPack,
+  appendDecisionAudit,
+  readDecisionAudit,
+  type EpochPackResult,
+} from "./epoch.js";

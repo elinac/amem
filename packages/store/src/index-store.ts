@@ -1,6 +1,6 @@
-import { DatabaseSync } from "node:sqlite";
 import { existsSync, mkdirSync, unlinkSync } from "node:fs";
 import { dirname } from "node:path";
+import { DatabaseSync } from "node:sqlite";
 import type { MemoryRecord } from "@amem/core";
 import { paths } from "@amem/core";
 import type { MemoryStore } from "./memory.js";
@@ -36,8 +36,8 @@ export class IndexStore {
     const p = paths(home).index;
     mkdirSync(dirname(p), { recursive: true });
     this.db = new DatabaseSync(p);
-    this.db.exec(`PRAGMA journal_mode=WAL;`);
-    this.db.exec(`PRAGMA busy_timeout=5000;`);
+    this.db.exec("PRAGMA journal_mode=WAL;");
+    this.db.exec("PRAGMA busy_timeout=5000;");
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS mem (
         id TEXT PRIMARY KEY,
@@ -81,7 +81,7 @@ export class IndexStore {
   }
 
   schemaVersion(): number {
-    const row = this.db.prepare(`PRAGMA user_version`).get() as { user_version: number };
+    const row = this.db.prepare("PRAGMA user_version").get() as { user_version: number };
     return row?.user_version ?? 0;
   }
 
@@ -100,7 +100,7 @@ export class IndexStore {
 
   countMemories(): number {
     try {
-      const row = this.db.prepare(`SELECT COUNT(*) AS n FROM mem`).get() as { n: number };
+      const row = this.db.prepare("SELECT COUNT(*) AS n FROM mem").get() as { n: number };
       return row?.n ?? 0;
     } catch {
       return 0;
@@ -108,13 +108,15 @@ export class IndexStore {
   }
 
   rebuild(store: MemoryStore): number {
-    this.db.exec("DELETE FROM mem_tag; DELETE FROM mem_stat; DELETE FROM mem; DELETE FROM mem_vec;");
+    this.db.exec(
+      "DELETE FROM mem_tag; DELETE FROM mem_stat; DELETE FROM mem; DELETE FROM mem_vec;",
+    );
     try {
       this.db.exec("DELETE FROM mem_fts;");
     } catch {
-      this.db.exec(`DROP TABLE IF EXISTS mem_fts;`);
+      this.db.exec("DROP TABLE IF EXISTS mem_fts;");
       this.db.exec(
-        `CREATE VIRTUAL TABLE mem_fts USING fts5(id UNINDEXED, title, applies_when, body)`,
+        "CREATE VIRTUAL TABLE mem_fts USING fts5(id UNINDEXED, title, applies_when, body)",
       );
     }
     const rows = store.listAll();
@@ -172,16 +174,16 @@ export class IndexStore {
   }
 
   removeMemory(id: string): void {
-    this.db.prepare(`DELETE FROM mem_tag WHERE id = ?`).run(id);
-    this.db.prepare(`DELETE FROM mem_stat WHERE id = ?`).run(id);
-    this.db.prepare(`DELETE FROM mem WHERE id = ?`).run(id);
+    this.db.prepare("DELETE FROM mem_tag WHERE id = ?").run(id);
+    this.db.prepare("DELETE FROM mem_stat WHERE id = ?").run(id);
+    this.db.prepare("DELETE FROM mem WHERE id = ?").run(id);
     try {
-      this.db.prepare(`DELETE FROM mem_fts WHERE id = ?`).run(id);
+      this.db.prepare("DELETE FROM mem_fts WHERE id = ?").run(id);
     } catch {
       /* next ensure/rebuild repairs */
     }
     try {
-      this.db.prepare(`DELETE FROM mem_vec WHERE id = ?`).run(id);
+      this.db.prepare("DELETE FROM mem_vec WHERE id = ?").run(id);
     } catch {
       /* optional on pre-migration dbs */
     }
@@ -208,40 +210,33 @@ export class IndexStore {
         m.validity.review_by ?? null,
       );
     this.db
-      .prepare(`INSERT INTO mem_fts(id, title, applies_when, body) VALUES (?, ?, ?, ?)`)
+      .prepare("INSERT INTO mem_fts(id, title, applies_when, body) VALUES (?, ?, ?, ?)")
       .run(m.id, m.title, m.applies_when, m.content);
-    const tagIns = this.db.prepare(`INSERT INTO mem_tag(id,key,value) VALUES (?,?,?)`);
+    const tagIns = this.db.prepare("INSERT INTO mem_tag(id,key,value) VALUES (?,?,?)");
     for (const d of m.scope.tags.domains ?? []) tagIns.run(m.id, "domain", d);
     for (const t of m.scope.tags.tools ?? []) tagIns.run(m.id, "tool", t);
     if (m.scope.tags.task_type) tagIns.run(m.id, "task_type", m.scope.tags.task_type);
     for (const i of m.scope.tags.instances ?? []) tagIns.run(m.id, "instance", i);
     this.db
       .prepare(
-        `INSERT INTO mem_stat(id,recalled,adopted,helpful,harmful,lift) VALUES (?,?,?,?,?,?)`,
+        "INSERT INTO mem_stat(id,recalled,adopted,helpful,harmful,lift) VALUES (?,?,?,?,?,?)",
       )
-      .run(
-        m.id,
-        m.stats.recalled,
-        m.stats.adopted,
-        m.stats.helpful,
-        m.stats.harmful,
-        m.stats.lift,
-      );
+      .run(m.id, m.stats.recalled, m.stats.adopted, m.stats.helpful, m.stats.harmful, m.stats.lift);
   }
 
   /** Persist an embedding vector (JSON float array). No-op when empty. */
   upsertEmbedding(id: string, vector: number[]): void {
     if (!vector.length) return;
-    this.db.prepare(`DELETE FROM mem_vec WHERE id = ?`).run(id);
+    this.db.prepare("DELETE FROM mem_vec WHERE id = ?").run(id);
     this.db
-      .prepare(`INSERT INTO mem_vec(id, dim, vector) VALUES (?,?,?)`)
+      .prepare("INSERT INTO mem_vec(id, dim, vector) VALUES (?,?,?)")
       .run(id, vector.length, JSON.stringify(vector));
   }
 
   searchVec(query: number[], limit = 20): { id: string; score: number }[] {
     if (!query.length) return [];
     try {
-      const rows = this.db.prepare(`SELECT id, vector FROM mem_vec`).all() as {
+      const rows = this.db.prepare("SELECT id, vector FROM mem_vec").all() as {
         id: string;
         vector: string;
       }[];

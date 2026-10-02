@@ -1,3 +1,5 @@
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import {
   type AmemConfig,
   type ContextPack,
@@ -10,10 +12,9 @@ import {
   paths,
   scopePriority,
 } from "@amem/core";
-import { IndexStore, MemoryStore } from "@amem/store";
-import { mkdirSync } from "node:fs";
-import { join } from "node:path";
-import { decideRecall, injectableDecisions, type ScoreParts } from "./decide.js";
+import { IndexStore, MemoryStore, listBlockedMemoryIds } from "@amem/store";
+import { type ScoreParts, decideRecall, injectableDecisions } from "./decide.js";
+import { appendDecisionAudit } from "./decision-audit.js";
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
@@ -71,9 +72,7 @@ export function explainScore(
   let levelAdj = 0;
   if (m.scope.level === "instance") {
     levelAdj =
-      situation.instance_id && m.scope.tags.instances?.includes(situation.instance_id)
-        ? 0.1
-        : -0.2;
+      situation.instance_id && m.scope.tags.instances?.includes(situation.instance_id) ? 0.1 : -0.2;
   }
   const parts: ScoreParts = {
     rel: 0.6 * rel,
@@ -86,11 +85,7 @@ export function explainScore(
   return { memory: m, score, parts };
 }
 
-export function scoreMemory(
-  m: MemoryRecord,
-  situation: Situation,
-  ftsRank: number | null,
-): number {
+export function scoreMemory(m: MemoryRecord, situation: Situation, ftsRank: number | null): number {
   return explainScore(m, situation, ftsRank).score;
 }
 
@@ -210,13 +205,18 @@ export function buildContextPack(opts: {
 }): ContextPack {
   const hits = opts.hits ?? recall(opts.home, opts.situation, opts.cfg.recall.l0_items);
   const mode = opts.cfg.recall.mode ?? "assist";
-  const decisions = decideRecall(hits, mode);
+  const blockedIds = listBlockedMemoryIds(opts.home);
+  const decisions = decideRecall(hits, mode, { blockedIds });
   const inject = injectableDecisions(decisions, mode);
   const budget = opts.cfg.recall.budget_tokens;
   const items: ContextPack["items"] = [];
   const dropped: ContextPack["dropped"] = [];
   for (const d of decisions) {
-    if (d.decision === "ignore" || (mode === "enforce" && d.decision === "verify") || mode === "shadow") {
+    if (
+      d.decision === "ignore" ||
+      (mode === "enforce" && d.decision === "verify") ||
+      mode === "shadow"
+    ) {
       if (!inject.some((i) => i.memory.id === d.memory.id)) {
         dropped.push({ ref: d.memory.id, reason: d.reason });
       }
@@ -224,7 +224,9 @@ export function buildContextPack(opts: {
   }
   let used = 0;
   let l1 = 0;
+  const packId = newId("cp");
   for (const h of inject) {
+    const decisionId = newId("dec");
     const prefix = h.decision === "verify" ? "[verify] " : "";
     const l0 = `${prefix}${h.memory.title} — ${h.memory.applies_when}`;
     const t0 = estimateTokens(l0);
@@ -238,6 +240,17 @@ export function buildContextPack(opts: {
       level: h.memory.scope.level,
       score: h.score,
       tokens: t0,
+      decision: h.decision,
+      decision_id: decisionId,
+    });
+    appendDecisionAudit(opts.home, {
+      decision_id: decisionId,
+      pack_id: packId,
+      memory_id: h.memory.id,
+      decision: h.decision,
+      reason: h.reason,
+      mode,
+      score: h.score,
     });
     used += t0;
     if (l1 < opts.cfg.recall.l1_items) {
@@ -250,6 +263,8 @@ export function buildContextPack(opts: {
           level: h.memory.scope.level,
           score: h.score,
           tokens: t1,
+          decision: h.decision,
+          decision_id: decisionId,
         });
         used += t1;
         l1 += 1;
@@ -258,7 +273,7 @@ export function buildContextPack(opts: {
   }
   items.sort((a, b) => contextLayerPriority(a.layer) - contextLayerPriority(b.layer));
   const pack: ContextPack = {
-    pack_id: newId("cp"),
+    pack_id: packId,
     session_id: opts.sessionId,
     host: opts.host ?? "cursor",
     situation: opts.situation,

@@ -1,9 +1,9 @@
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it } from "vitest";
-import { defaultConfig, newId, type MemoryRecord } from "@amem/core";
+import { type MemoryRecord, defaultConfig, newId } from "@amem/core";
 import { IndexStore, MemoryStore } from "@amem/store";
+import { afterEach, describe, expect, it } from "vitest";
 import { buildContextPack, extractSituation, recall } from "./index.js";
 
 const homes: string[] = [];

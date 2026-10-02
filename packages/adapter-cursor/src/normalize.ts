@@ -27,9 +27,7 @@ function base(raw: Raw, userId: string): Omit<CanonicalEvent, "type" | "payload"
     host_version: str(raw.cursor_version),
     session_id: session,
     turn_id: str(raw.generation_id),
-    workspace: roots.length
-      ? { roots, instance_id: instanceIdFromWorkspace(roots) }
-      : undefined,
+    workspace: roots.length ? { roots, instance_id: instanceIdFromWorkspace(roots) } : undefined,
     user_id: userId,
     model: str(raw.model),
   };
@@ -58,15 +56,19 @@ export function normalizeCursorHook(
   const raw = (typeof rawInput === "object" && rawInput ? rawInput : {}) as Raw;
   const scrubbed = redactDeep(raw, "", { patterns: redactPatterns }) as Raw;
   // drop email
-  delete scrubbed.user_email;
+  scrubbed.user_email = undefined;
 
   const b = base(scrubbed, userId);
 
   switch (eventName) {
     case "sessionStart":
-      return [{ ...b, type: "session_start", payload: { transcript_path: scrubbed.transcript_path } }];
+      return [
+        { ...b, type: "session_start", payload: { transcript_path: scrubbed.transcript_path } },
+      ];
     case "sessionEnd":
-      return [{ ...b, type: "session_end", payload: { transcript_path: scrubbed.transcript_path } }];
+      return [
+        { ...b, type: "session_end", payload: { transcript_path: scrubbed.transcript_path } },
+      ];
     case "beforeSubmitPrompt":
       return [
         {

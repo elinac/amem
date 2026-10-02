@@ -1,12 +1,12 @@
 import type { IncomingHttpHeaders } from "node:http";
 import type { DshAdminScope } from "./auth-store.js";
-import {
+import type {
+  AuthResult,
   BrowserSessionManager,
-  type AuthResult,
-  type CsrfResult,
-  type LoginInput,
-  type LoginResult,
-  type RequestMeta,
+  CsrfResult,
+  LoginInput,
+  LoginResult,
+  RequestMeta,
 } from "./browser-session.js";
 
 /** Everything authorizeRpc needs from an HTTP request (cookie + CSRF stay together). */

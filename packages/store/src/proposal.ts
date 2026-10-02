@@ -2,8 +2,8 @@ import {
   cpSync,
   existsSync,
   mkdirSync,
-  readdirSync,
   readFileSync,
+  readdirSync,
   renameSync,
   rmSync,
 } from "node:fs";
@@ -43,7 +43,10 @@ function skillFrontmatterAndBody(text: string): {
     return { description: "", name: "", body: normalized.trim() };
   }
   const head = lines.slice(1, close).join("\n");
-  const body = lines.slice(close + 1).join("\n").trim();
+  const body = lines
+    .slice(close + 1)
+    .join("\n")
+    .trim();
   const description = head.match(/^description:\s*(.+)$/m)?.[1]?.trim() ?? "";
   const name = head.match(/^name:\s*(.+)$/m)?.[1]?.trim() ?? "";
   return { description, name, body };
@@ -106,10 +109,7 @@ export class ProposalStore {
     if (!existsSync(src)) throw new Error(`proposal not found: ${proposalId}`);
     const skillsRoot = join(paths(this.home).capabilities, "skills");
     mkdirSync(skillsRoot, { recursive: true });
-    const stagingDir = join(
-      skillsRoot,
-      `.tmp-${skillName}.${process.pid}.${Date.now()}`,
-    );
+    const stagingDir = join(skillsRoot, `.tmp-${skillName}.${process.pid}.${Date.now()}`);
     const destDir = join(skillsRoot, skillName);
     mkdirSync(stagingDir, { recursive: true });
     try {

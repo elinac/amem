@@ -1,8 +1,8 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
 import { configToToml, defaultConfig } from "@amem/core";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("./extract.js", () => ({
   extractSession: vi.fn(async () => ({ written: [] as string[] })),
@@ -63,10 +63,7 @@ describe("processQueue", () => {
     const home = setupHome();
     const dir = join(home, "queue");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(
-      join(dir, ".claim-1-2-flush-old.json"),
-      JSON.stringify(createFlushJob("old")),
-    );
+    writeFileSync(join(dir, ".claim-1-2-flush-old.json"), JSON.stringify(createFlushJob("old")));
     writeFileSync(
       join(dir, "flush-evil-1.json"),
       JSON.stringify(createFlushJob("../../../../tmp/evil")),
@@ -99,7 +96,10 @@ describe("processQueue", () => {
     const home = setupHome();
     const dir = join(home, "queue");
     mkdirSync(dir, { recursive: true });
-    writeFileSync(join(dir, "flush-bad-1.json"), JSON.stringify({ type: "flush", sessionId: "s1" }));
+    writeFileSync(
+      join(dir, "flush-bad-1.json"),
+      JSON.stringify({ type: "flush", sessionId: "s1" }),
+    );
     await expect(processQueue(home)).resolves.toBe(0);
     expect(existsSync(join(dir, "failed", "flush-bad-1.json"))).toBe(true);
     expect(extractSession).not.toHaveBeenCalled();

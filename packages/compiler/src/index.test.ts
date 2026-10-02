@@ -10,9 +10,7 @@ describe("skillFrontmatterAndBody", () => {
   });
 
   it("keeps body when body contains a markdown HR line of ---", () => {
-    const r = parse(
-      "---\nname: mem_x\ndescription: My Title\n---\n\nIntro\n\n---\n\nAfter HR\n",
-    );
+    const r = parse("---\nname: mem_x\ndescription: My Title\n---\n\nIntro\n\n---\n\nAfter HR\n");
     expect(r.description).toBe("My Title");
     expect(r.name).toBe("mem_x");
     expect(r.body).toContain("Intro");

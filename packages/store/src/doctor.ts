@@ -1,7 +1,7 @@
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { paths } from "@amem/core";
-import { IndexStore, INDEX_SCHEMA_VERSION } from "./index-store.js";
+import { INDEX_SCHEMA_VERSION, IndexStore } from "./index-store.js";
 import { MemoryStore } from "./memory.js";
 
 export type DoctorStatus = "ok" | "warn" | "fail";
@@ -64,7 +64,12 @@ export function purgeFailedJobs(home: string, names?: string[]): { purged: strin
   const targets = names?.length ? names : listJsonFiles(failedDir);
   const purged: string[] = [];
   for (const name of targets) {
-    if (!name.endsWith(".json") || name.includes("/") || name.includes("\\") || name.startsWith(".")) {
+    if (
+      !name.endsWith(".json") ||
+      name.includes("/") ||
+      name.includes("\\") ||
+      name.startsWith(".")
+    ) {
       continue;
     }
     const p = join(failedDir, name);
@@ -160,7 +165,9 @@ export function runDoctor(home: string): DoctorReport {
     actions.push({
       id: "rebuild_index",
       command: "amem rebuild-index",
-      reason: schemaOk ? "index row count differs from memory files" : "index schema version mismatch",
+      reason: schemaOk
+        ? "index row count differs from memory files"
+        : "index schema version mismatch",
     });
   }
   if (queueFailed > 0) {

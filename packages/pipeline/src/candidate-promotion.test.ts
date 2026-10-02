@@ -1,9 +1,9 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { defaultConfig, type CanonicalEvent, type MemoryRecord } from "@amem/core";
+import { type CanonicalEvent, type MemoryRecord, defaultConfig } from "@amem/core";
 import { EpisodeStore, MemoryStore } from "@amem/store";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 const { extractCandidates } = vi.hoisted(() => ({ extractCandidates: vi.fn() }));
 
@@ -149,13 +149,15 @@ describe("extractSession promotes validated agent notes", () => {
 
     const notes = new MemoryStore(home);
     notes.write(
-      agentNote({ evidence: {
-        episodes: [],
-        quotes: [{ ep: "agent-note", text: "port in use" }],
-        count: 0,
-        distinct_instances: 1,
-        distinct_domains: 1,
-      } }),
+      agentNote({
+        evidence: {
+          episodes: [],
+          quotes: [{ ep: "agent-note", text: "port in use" }],
+          count: 0,
+          distinct_instances: 1,
+          distinct_domains: 1,
+        },
+      }),
       "agent-note",
     );
     extractCandidates.mockResolvedValue([]);

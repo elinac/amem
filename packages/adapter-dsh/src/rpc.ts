@@ -1,10 +1,4 @@
-import {
-  MEMORY_KINDS,
-  MEMORY_PAGE_SIZES,
-  MEMORY_STATUSES,
-  SCOPE_LEVELS,
-  TRUSTS,
-} from "@amem/core";
+import { MEMORY_KINDS, MEMORY_PAGE_SIZES, MEMORY_STATUSES, SCOPE_LEVELS, TRUSTS } from "@amem/core";
 import type { AdminResult, AmemAdmin, ListMemoriesInput } from "./admin.js";
 import type { DshAdminScope } from "./auth-store.js";
 import type { AuthResult } from "./browser-session.js";
@@ -46,7 +40,11 @@ export type RpcMethodDef<P, R> = {
   /** Required scope; CSRF / Sec-Fetch mutating? is derived via isMutating([scope]). */
   scope: DshAdminScope;
   parse(params: unknown): P;
-  run(admin: AmemAdmin, params: P): Promise<R> | R;
+  run(
+    admin: AmemAdmin,
+    params: P,
+    auth: { tokenId: string; scopes: DshAdminScope[] },
+  ): Promise<R> | R;
 };
 
 export type RpcAuth = AuthResult | ((required: DshAdminScope) => AuthResult);
@@ -69,7 +67,11 @@ function safeString(v: unknown, name: string, max = MAX_STRING_PARAM_LENGTH): st
   return v;
 }
 
-function safeOptionalString(v: unknown, name: string, max = MAX_STRING_PARAM_LENGTH): string | undefined {
+function safeOptionalString(
+  v: unknown,
+  name: string,
+  max = MAX_STRING_PARAM_LENGTH,
+): string | undefined {
   if (v === undefined || v === null) return undefined;
   return safeString(v, name, max);
 }
@@ -81,7 +83,11 @@ function safePositiveInt(v: unknown, name: string): number {
   return v;
 }
 
-function safeOptionalEnum<T extends string | number>(v: unknown, name: string, values: readonly T[]): T | undefined {
+function safeOptionalEnum<T extends string | number>(
+  v: unknown,
+  name: string,
+  values: readonly T[],
+): T | undefined {
   if (v === undefined || v === null) return undefined;
   if (typeof v === "number") {
     if (!values.includes(v as T)) throw new RpcParseError(`invalid ${name}`);
@@ -169,6 +175,10 @@ function parseResolveConflict(params: unknown): {
   rightUpdatedAt: string;
 } {
   const p = requireObject(params);
+  // Actor/token_id must never come from the client (I10 / ADR-0004).
+  if ("actor" in p || "token_id" in p || "tokenId" in p || "os_user" in p) {
+    throw new RpcParseError("actor fields are not accepted in params");
+  }
   const action = safeOptionalEnum(p.action, "action", RESOLVE_ACTIONS);
   if (!action) throw new RpcParseError("invalid action");
   return {
@@ -194,7 +204,6 @@ function mapAdminError(error: string): string {
     case "conflict_version_mismatch":
     case "not_a_conflict_pair":
       return "conflict";
-    case "internal":
     default:
       return "internal";
   }
@@ -261,7 +270,7 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   "conflict.resolve": {
     scope: "memory:resolve-conflict",
     parse: (p) => parseResolveConflict(p),
-    run: (admin, p) =>
+    run: (admin, p, auth) =>
       invokeAdmin(
         admin.resolveConflict(
           p as {
@@ -271,6 +280,7 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
             leftUpdatedAt: string;
             rightUpdatedAt: string;
           },
+          { kind: "dsh", token_id: auth.tokenId },
         ),
       ),
   },
@@ -352,7 +362,10 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
     scope: "config:write",
     parse: (p) => parsePutConfig(p),
     run: (admin, p) => {
-      const { config, api_key_replacement } = p as { config: unknown; api_key_replacement?: string };
+      const { config, api_key_replacement } = p as {
+        config: unknown;
+        api_key_replacement?: string;
+      };
       const body = api_key_replacement != null ? { config, api_key_replacement } : { config };
       return invokeAdmin(admin.putConfig(body));
     },
@@ -372,7 +385,11 @@ function parseEnvelope(envelope: unknown): RpcRequest {
   if (typeof e.id !== "string" || e.id.length === 0 || e.id.length > MAX_ID_LENGTH) {
     throw new RpcParseError("id must be a non-empty string");
   }
-  if (typeof e.method !== "string" || e.method.length === 0 || e.method.length > MAX_METHOD_LENGTH) {
+  if (
+    typeof e.method !== "string" ||
+    e.method.length === 0 ||
+    e.method.length > MAX_METHOD_LENGTH
+  ) {
     throw new RpcParseError("method must be a non-empty string");
   }
   if (!RPC_METHODS.includes(e.method as RpcMethod)) {
@@ -446,7 +463,10 @@ export async function dispatchRpc(
   }
 
   try {
-    const result = await def.run(admin, parsed);
+    const result = await def.run(admin, parsed, {
+      tokenId: authResult.tokenId,
+      scopes: authResult.scopes,
+    });
     return okResponse(req.id, result);
   } catch (e) {
     if (e instanceof RpcAdminError) {

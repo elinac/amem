@@ -9,13 +9,13 @@ import {
   canPromoteKind,
   containsSecrets,
   evidenceQuotesValid,
+  isExcludedWorkspace,
   isSafeId,
   memoryPath,
   normalizeWorkspaceRoot,
   paths,
   redactDeep,
   redactString,
-  isExcludedWorkspace,
   sanitizeId,
 } from "./index.js";
 
@@ -165,9 +165,9 @@ describe("invariants", () => {
   });
 
   it("validates evidence quotes", () => {
-    expect(evidenceQuotesValid([{ quote: "Port 3000" }], "Error: Port 3000 is already in use")).toBe(
-      true,
-    );
+    expect(
+      evidenceQuotesValid([{ quote: "Port 3000" }], "Error: Port 3000 is already in use"),
+    ).toBe(true);
     expect(evidenceQuotesValid([{ quote: "missing" }], "Error: Port 3000")).toBe(false);
   });
 });
