@@ -1,10 +1,11 @@
-import type {
-  MemoryKind,
-  MemoryStatus,
-  ScopeLevel,
-  Trust,
+import {
+  MEMORY_KINDS,
+  MEMORY_PAGE_SIZES,
+  MEMORY_STATUSES,
+  SCOPE_LEVELS,
+  TRUSTS,
 } from "@amem/core";
-import type { AmemAdmin, ListMemoriesInput } from "./admin.js";
+import type { AdminResult, AmemAdmin, ListMemoriesInput } from "./admin.js";
 import type { DshAdminScope } from "./auth-store.js";
 import type { AuthResult } from "./browser-session.js";
 
@@ -49,7 +50,6 @@ const MAX_ID_LENGTH = 128;
 const MAX_METHOD_LENGTH = 64;
 const MAX_STRING_PARAM_LENGTH = 512;
 const MAX_QUERY_LENGTH = 256;
-const MAX_PAGE_SIZE = 100;
 
 class RpcParseError extends Error {
   constructor(message: string) {
@@ -94,29 +94,7 @@ function requireObject(v: unknown, name = "params"): Record<string, unknown> {
   return v as Record<string, unknown>;
 }
 
-const MEMORY_KINDS: MemoryKind[] = [
-  "fact",
-  "case",
-  "failure",
-  "procedure",
-  "tool_quirk",
-  "strategy",
-  "criterion",
-  "constraint_hint",
-  "preference",
-  "open_question",
-];
-const SCOPE_LEVELS: ScopeLevel[] = ["instance", "domain", "global"];
-const TRUSTS: Trust[] = ["T3", "T2", "T1"];
-const MEMORY_STATUSES: MemoryStatus[] = [
-  "candidate",
-  "active",
-  "superseded",
-  "conflict",
-  "frozen",
-  "expired",
-];
-const PAGE_SIZES: ListMemoriesInput["pageSize"][] = [20, 50, 100];
+const PAGE_SIZES = MEMORY_PAGE_SIZES;
 
 function parseListMemories(params: unknown): ListMemoriesInput {
   const p = requireObject(params);
@@ -168,16 +146,6 @@ function parsePutConfig(params: unknown): { config: unknown; api_key_replacement
   };
 }
 
-function adminResultToData(result: { ok: true; data: unknown } | { ok: false; error: string; message: string; status: number }): { data?: unknown; error?: { code: string; message: string } } {
-  if (result.ok) return { data: result.data };
-  return {
-    error: {
-      code: mapAdminError(result.error),
-      message: result.message,
-    },
-  };
-}
-
 function mapAdminError(error: string): string {
   switch (error) {
     case "not_found":
@@ -196,6 +164,27 @@ function mapAdminError(error: string): string {
   }
 }
 
+class RpcAdminError extends Error {
+  constructor(
+    public readonly code: string,
+    public readonly message: string,
+    public readonly status: number,
+  ) {
+    super(message);
+    this.name = "RpcAdminError";
+  }
+}
+
+/** Collapse AdminResult → data or stable RpcAdminError (single glue for all methods). */
+function invokeAdmin(result: AdminResult): unknown {
+  if (result.ok) return result.data;
+  throw new RpcAdminError(result.error, result.message, result.status);
+}
+
+async function invokeAdminAsync(result: Promise<AdminResult> | AdminResult): Promise<unknown> {
+  return invokeAdmin(await result);
+}
+
 function okResponse<R>(id: string, result: R): RpcResponse {
   return { id, ok: true, result };
 }
@@ -208,111 +197,65 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
   "memory.list": {
     scope: "memory:read",
     parse: (p) => parseListMemories(p),
-    run: (admin, p) => {
-      const r = admin.listMemories(p as ListMemoriesInput);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin, p) => invokeAdmin(admin.listMemories(p as ListMemoriesInput)),
   },
   "memory.get": {
     scope: "memory:read",
     parse: (p) => parseId(p),
-    run: (admin, p) => {
-      const r = admin.getMemory((p as { id: string }).id);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin, p) => invokeAdmin(admin.getMemory((p as { id: string }).id)),
   },
   "memory.forget": {
     scope: "memory:forget",
     parse: (p) => parseId(p),
-    run: (admin, p) => {
-      const r = admin.forget((p as { id: string }).id);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin, p) => invokeAdmin(admin.forget((p as { id: string }).id)),
   },
   "skill.list": {
     scope: "skill:read",
     parse: () => undefined,
-    run: (admin) => {
-      const r = admin.listSkills();
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin) => invokeAdmin(admin.listSkills()),
   },
   "proposal.list": {
     scope: "proposal:read",
     parse: () => undefined,
-    run: (admin) => {
-      const r = admin.listProposals();
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin) => invokeAdmin(admin.listProposals()),
   },
   "proposal.apply": {
     scope: "proposal:apply",
     parse: (p) => parseApplyProposal(p),
     run: (admin, p) => {
       const { id, skillName } = p as { id: string; skillName: string };
-      const r = admin.applyProposal(id, skillName);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
+      return invokeAdmin(admin.applyProposal(id, skillName));
     },
   },
   "ops.doctor": {
     scope: "ops:doctor",
     parse: () => undefined,
-    run: (admin) => {
-      const r = admin.doctor();
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin) => invokeAdmin(admin.doctor()),
   },
   "ops.flush": {
     scope: "ops:flush",
     parse: (p) => parseFlush(p),
-    run: async (admin, p) => {
-      const r = await admin.flush((p as { sessionId?: string }).sessionId);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin, p) => invokeAdminAsync(admin.flush((p as { sessionId?: string }).sessionId)),
   },
   "ops.rebuild": {
     scope: "ops:rebuild",
     parse: () => undefined,
-    run: (admin) => {
-      const r = admin.rebuildIndex();
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin) => invokeAdmin(admin.rebuildIndex()),
   },
   "ops.consolidate": {
     scope: "ops:consolidate",
     parse: (p) => parseConsolidate(p),
-    run: async (admin, p) => {
-      const r = await admin.consolidate((p as { dryRun: boolean }).dryRun);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin, p) => invokeAdminAsync(admin.consolidate((p as { dryRun: boolean }).dryRun)),
   },
   "ops.compile": {
     scope: "ops:compile",
     parse: (p) => parseCompile(p),
-    run: (admin, p) => {
-      const r = admin.compile((p as { target?: string }).target);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin, p) => invokeAdmin(admin.compile((p as { target?: string }).target)),
   },
   "config.get": {
     scope: "config:read",
     parse: () => undefined,
-    run: (admin) => {
-      const r = admin.getConfig();
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
-    },
+    run: (admin) => invokeAdmin(admin.getConfig()),
   },
   "config.put": {
     scope: "config:write",
@@ -320,23 +263,10 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
     run: (admin, p) => {
       const { config, api_key_replacement } = p as { config: unknown; api_key_replacement?: string };
       const body = api_key_replacement != null ? { config, api_key_replacement } : { config };
-      const r = admin.putConfig(body);
-      if (r.ok) return r.data;
-      throw new RpcAdminError(r.error, r.message, r.status);
+      return invokeAdmin(admin.putConfig(body));
     },
   },
 };
-
-class RpcAdminError extends Error {
-  constructor(
-    public readonly code: string,
-    public readonly message: string,
-    public readonly status: number,
-  ) {
-    super(message);
-    this.name = "RpcAdminError";
-  }
-}
 
 function resolveAuth(auth: RpcAuth, scope: DshAdminScope): AuthResult {
   if (typeof auth === "function") return auth(scope);

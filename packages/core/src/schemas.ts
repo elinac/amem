@@ -34,6 +34,14 @@ export const MemoryStatusSchema = z.enum([
   "expired",
 ]);
 
+/** Canonical enum arrays for list filters (admin / RPC / UI). */
+export const MEMORY_KINDS = MemoryKindSchema.options;
+export const SCOPE_LEVELS = ScopeLevelSchema.options;
+export const TRUSTS = TrustSchema.options;
+export const MEMORY_STATUSES = MemoryStatusSchema.options;
+export const MEMORY_PAGE_SIZES = [20, 50, 100] as const;
+export type MemoryPageSize = (typeof MEMORY_PAGE_SIZES)[number];
+
 export const CanonicalEventSchema = z.object({
   v: z.literal(1),
   ts: z.string(),
@@ -144,6 +152,7 @@ export const MemoryFrontmatterSchema = z.object({
     review_by: z.string().optional(),
   }),
   supersedes: z.string().nullable().optional(),
+  conflicts_with: z.array(z.string()).optional().default([]),
   created_by: z.string(),
   updated_at: z.string(),
 });
