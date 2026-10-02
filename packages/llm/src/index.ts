@@ -13,6 +13,17 @@ export interface LlmClient {
     summary: string;
     episodeBlob: string;
   }): Promise<MemoryCandidate[]>;
+  /**
+   * Refine a Proposal SKILL.md body. Returns null to fall back to template
+   * (stub/host mode, missing key, or any LLM failure).
+   */
+  refineProposalSkill(input: {
+    id: string;
+    title: string;
+    content: string;
+  }): Promise<string | null>;
+  /** Optional embedding API; null/empty when unavailable. */
+  embedTexts?(texts: string[]): Promise<number[][] | null>;
 }
 
 /** Deterministic stub: pull one failure candidate if Port/error-like text exists. */
@@ -52,6 +63,18 @@ export class StubLlmClient implements LlmClient {
         },
       ],
     }).candidates;
+  }
+
+  async refineProposalSkill(_input: {
+    id: string;
+    title: string;
+    content: string;
+  }): Promise<string | null> {
+    return null;
+  }
+
+  async embedTexts(_texts: string[]): Promise<number[][] | null> {
+    return null;
   }
 }
 
@@ -282,10 +305,11 @@ export function normalizeCandidates(raw: unknown, episodeBlob: string): MemoryCa
 export class OpenAiCompatibleClient implements LlmClient {
   constructor(private readonly cfg: AmemConfig) {}
 
-  async extractCandidates(input: {
-    summary: string;
-    episodeBlob: string;
-  }): Promise<MemoryCandidate[]> {
+  private async chatCompletions(body: Record<string, unknown>): Promise<{
+    ok: boolean;
+    status: number;
+    content: string | undefined;
+  }> {
     const key = resolveLlmApiKey(this.cfg);
     if (!key) {
       throw new Error(
@@ -298,55 +322,50 @@ export class OpenAiCompatibleClient implements LlmClient {
         Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
-      body: JSON.stringify({
-        model: this.cfg.llm.model,
-        response_format: { type: "json_object" },
-        messages: [
-          {
-            role: "system",
-            content:
-              `Extract cross-session memories as JSON {"candidates":[...]}. ` +
-              `Allowed kind values (use exactly one): ${MemoryKindSchema.options.join(", ")}. ` +
-              `Each candidate: {kind, title (<=80 chars), content (<=1200 chars), applies_when, evidence:[{event, quote}]}. ` +
-              `"event" MUST be the 0-based index of the episode line containing the quote; ` +
-              `"quote" MUST be a verbatim substring of the episode. 1-8 candidates. No secrets.`,
-          },
-          {
-            role: "user",
-            content: `Summary:\n${input.summary}\n\nEpisode (truncated):\n${input.episodeBlob.slice(0, 12000)}`,
-          },
-        ],
-      }),
+      body: JSON.stringify({ model: this.cfg.llm.model, ...body }),
     });
-    if (!res.ok) throw new Error(`llm http ${res.status}`);
+    if (!res.ok) return { ok: false, status: res.status, content: undefined };
     const data = (await res.json()) as {
       choices?: { message?: { content?: string } }[];
     };
-    const text = data.choices?.[0]?.message?.content ?? "{}";
-    return normalizeCandidates(parseJsonLoose(text), input.episodeBlob);
+    return { ok: true, status: res.status, content: data.choices?.[0]?.message?.content };
   }
-}
 
-/**
- * Optionally refine a Proposal SKILL.md body. Returns null to signal fallback to template
- * (non-external mode, missing key, or any LLM failure).
- */
-export async function tryRefineProposalSkill(
-  cfg: AmemConfig,
-  input: { id: string; title: string; content: string },
-): Promise<string | null> {
-  if (cfg.llm.mode !== "external") return null;
-  const key = resolveLlmApiKey(cfg);
-  if (!key) return null;
-  try {
-    const res = await fetch(`${cfg.llm.base_url}/chat/completions`, {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${key}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: cfg.llm.model,
+  async extractCandidates(input: {
+    summary: string;
+    episodeBlob: string;
+  }): Promise<MemoryCandidate[]> {
+    const result = await this.chatCompletions({
+      response_format: { type: "json_object" },
+      messages: [
+        {
+          role: "system",
+          content:
+            `Extract cross-session memories as JSON {"candidates":[...]}. ` +
+            `Allowed kind values (use exactly one): ${MemoryKindSchema.options.join(", ")}. ` +
+            `Each candidate: {kind, title (<=80 chars), content (<=1200 chars), applies_when, evidence:[{event, quote}]}. ` +
+            `"event" MUST be the 0-based index of the episode line containing the quote; ` +
+            `"quote" MUST be a verbatim substring of the episode. 1-8 candidates. No secrets.`,
+        },
+        {
+          role: "user",
+          content: `Summary:\n${input.summary}\n\nEpisode (truncated):\n${input.episodeBlob.slice(0, 12000)}`,
+        },
+      ],
+    });
+    if (!result.ok) throw new Error(`llm http ${result.status}`);
+    return normalizeCandidates(parseJsonLoose(result.content ?? "{}"), input.episodeBlob);
+  }
+
+  async refineProposalSkill(input: {
+    id: string;
+    title: string;
+    content: string;
+  }): Promise<string | null> {
+    if (this.cfg.llm.mode !== "external") return null;
+    if (!resolveLlmApiKey(this.cfg)) return null;
+    try {
+      const result = await this.chatCompletions({
         messages: [
           {
             role: "system",
@@ -358,18 +377,53 @@ export async function tryRefineProposalSkill(
             content: `name: ${input.id}\ntitle: ${input.title}\n\n${input.content}`,
           },
         ],
-      }),
-    });
-    if (!res.ok) return null;
-    const data = (await res.json()) as {
-      choices?: { message?: { content?: string } }[];
-    };
-    const text = data.choices?.[0]?.message?.content?.trim();
-    if (!text || !text.includes("---")) return null;
-    return text.endsWith("\n") ? text : `${text}\n`;
-  } catch {
-    return null;
+      });
+      if (!result.ok) return null;
+      const text = result.content?.trim();
+      if (!text || !text.includes("---")) return null;
+      return text.endsWith("\n") ? text : `${text}\n`;
+    } catch {
+      return null;
+    }
   }
+
+  async embedTexts(texts: string[]): Promise<number[][] | null> {
+    if (!this.cfg.embedding.enabled || !texts.length) return null;
+    const key = resolveLlmApiKey(this.cfg);
+    if (!key) return null;
+    const base = this.cfg.embedding.base_url || this.cfg.llm.base_url;
+    const model = this.cfg.embedding.model || "text-embedding-3-small";
+    try {
+      const res = await fetch(`${base.replace(/\/$/, "")}/embeddings`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${key}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({ model, input: texts }),
+      });
+      if (!res.ok) return null;
+      const data = (await res.json()) as {
+        data?: { embedding?: number[]; index?: number }[];
+      };
+      const rows = data.data ?? [];
+      const out: number[][] = [];
+      for (let i = 0; i < texts.length; i++) {
+        const row = rows.find((r) => r.index === i) ?? rows[i];
+        if (!row?.embedding?.length) return null;
+        out.push(row.embedding);
+      }
+      return out;
+    } catch {
+      return null;
+    }
+  }
+}
+export async function tryRefineProposalSkill(
+  cfg: AmemConfig,
+  input: { id: string; title: string; content: string },
+): Promise<string | null> {
+  return createLlmClient(cfg).refineProposalSkill(input);
 }
 
 export function createLlmClient(cfg: AmemConfig): LlmClient {

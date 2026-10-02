@@ -1,9 +1,9 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { defaultConfig, newId, paths, type CanonicalEvent } from "@amem/core";
-import { EpisodeStore, MemoryStore } from "@amem/store";
+import { defaultConfig, newId, type CanonicalEvent } from "@amem/core";
+import { EpisodeStore, MemoryStore, ProposalStore } from "@amem/store";
 import { consolidate, extractSession, promoteLevel, reconcile, shouldPromoteToDomain } from "./index.js";
 
 const homes: string[] = [];
@@ -144,9 +144,7 @@ describe("consolidate", () => {
     const r = await consolidate(home, defaultConfig());
     expect(r.promoted).toContain("mem_inst");
     expect(r.proposals).toContain("mem_inst");
-    expect(existsSync(join(paths(home).capabilities, ".proposals", "mem_inst", "SKILL.md"))).toBe(
-      true,
-    );
+    expect(new ProposalStore(home).readSkillMd("mem_inst")).toBeTruthy();
   });
 
   it("writes proposals for already-domain procedures without requiring a second run", async () => {
@@ -178,7 +176,7 @@ describe("consolidate", () => {
     );
     const r = await consolidate(home, defaultConfig());
     expect(r.proposals).toContain("mem_dom");
-    expect(existsSync(join(paths(home).capabilities, ".proposals", "mem_dom", "proposal.md"))).toBe(
+    expect(new ProposalStore(home).list().some((p) => p.id === "mem_dom" && p.hasProposalMd)).toBe(
       true,
     );
   });
@@ -215,11 +213,7 @@ describe("consolidate", () => {
     cfg.llm.mode = "stub";
     const r = await consolidate(home, cfg);
     expect(r.proposals).toContain("mem_ref");
-    const { readFileSync } = await import("node:fs");
-    const body = readFileSync(
-      join(paths(home).capabilities, ".proposals", "mem_ref", "SKILL.md"),
-      "utf8",
-    );
+    const body = new ProposalStore(home).readSkillMd("mem_ref");
     expect(body).toContain("original body");
   });
 
@@ -257,9 +251,42 @@ describe("consolidate", () => {
     const r = await consolidate(home, cfg);
     expect(r.promoted).toContain("mem_budget");
     expect(r.proposals).toContain("mem_budget");
-    const { readFileSync } = await import("node:fs");
-    expect(
-      readFileSync(join(paths(home).capabilities, ".proposals", "mem_budget", "SKILL.md"), "utf8"),
-    ).toContain("body budget");
+    expect(new ProposalStore(home).readSkillMd("mem_budget")).toContain("body budget");
+  });
+
+  it("expires memories past review_by", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-"));
+    homes.push(home);
+    const store = new MemoryStore(home);
+    store.write(
+      {
+        id: "mem_old",
+        kind: "procedure",
+        title: "stale",
+        content: "old advice",
+        applies_when: "anytime",
+        scope: { level: "instance", tags: { user: "u" } },
+        trust: "T3",
+        status: "active",
+        evidence: {
+          episodes: ["e1"],
+          count: 1,
+          distinct_instances: 1,
+          distinct_domains: 1,
+        },
+        stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+        validity: {
+          depends_on: [],
+          valid_from: "2020-01-01",
+          review_by: "2020-06-01",
+        },
+        created_by: "t",
+        updated_at: new Date().toISOString(),
+      },
+      "pipeline",
+    );
+    const r = await consolidate(home, defaultConfig());
+    expect(r.expired).toContain("mem_old");
+    expect(store.readById("mem_old")?.status).toBe("expired");
   });
 });

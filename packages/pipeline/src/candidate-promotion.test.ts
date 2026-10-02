@@ -8,7 +8,10 @@ import { EpisodeStore, MemoryStore } from "@amem/store";
 const { extractCandidates } = vi.hoisted(() => ({ extractCandidates: vi.fn() }));
 
 vi.mock("@amem/llm", () => ({
-  createLlmClient: () => ({ extractCandidates }),
+  createLlmClient: () => ({
+    extractCandidates,
+    refineProposalSkill: vi.fn(async () => null),
+  }),
   tryRefineProposalSkill: vi.fn(async () => null),
 }));
 

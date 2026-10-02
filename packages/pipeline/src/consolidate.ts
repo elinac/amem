@@ -2,13 +2,10 @@ import type { AmemConfig, MemoryRecord, ScopeLevel, Trust } from "@amem/core";
 import {
   canPromoteKind,
   isProposalEligible,
-  paths,
   proposalGateInputFromMemory,
 } from "@amem/core";
-import { IndexStore, MemoryStore } from "@amem/store";
-import { tryRefineProposalSkill } from "@amem/llm";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { IndexStore, MemoryStore, ProposalStore } from "@amem/store";
+import { createLlmClient } from "@amem/llm";
 
 export function shouldPromoteToDomain(m: MemoryRecord, cfg: AmemConfig): boolean {
   if (!canPromoteKind(m.kind)) return false;
@@ -62,6 +59,13 @@ function templateSkillMarkdown(m: MemoryRecord): string {
   return `---\nname: ${m.id}\ndescription: ${m.title}\n---\n\n${m.content}\n`;
 }
 
+export function shouldExpire(m: MemoryRecord, today = new Date().toISOString().slice(0, 10)): boolean {
+  if (m.status === "expired" || m.status === "frozen" || m.status === "superseded") return false;
+  const reviewBy = m.validity.review_by;
+  if (!reviewBy) return false;
+  return reviewBy < today;
+}
+
 export async function consolidate(
   home: string,
   cfg: AmemConfig,
@@ -69,6 +73,7 @@ export async function consolidate(
   promoted: string[];
   demoted: string[];
   proposals: string[];
+  expired: string[];
 }> {
   const started = Date.now();
   const store = new MemoryStore(home);
@@ -76,16 +81,25 @@ export async function consolidate(
   const promoted: string[] = [];
   const demoted: string[] = [];
   const proposals: string[] = [];
+  const expired: string[] = [];
   let calls = 0;
 
   for (const m of all) {
     if ((Date.now() - started) / 60000 > cfg.budget.consolidate.max_minutes) break;
     if (calls >= cfg.budget.consolidate.max_llm_calls) break;
 
+    if (shouldExpire(m)) {
+      store.upsert(
+        { ...m, status: "expired", updated_at: new Date().toISOString() },
+        "pipeline",
+      );
+      expired.push(m.id);
+      continue;
+    }
+
     if (m.stats.harmful >= 2 || (m.stats.lift < -0.1 && m.stats.recalled >= 5)) {
       const d = demote(m);
-      store.forget(m.id);
-      store.write(d, "pipeline");
+      store.upsert(d, "pipeline");
       demoted.push(m.id);
       calls += 1;
       continue;
@@ -94,14 +108,12 @@ export async function consolidate(
     let current = m;
     if (shouldPromoteToDomain(m, cfg)) {
       current = promoteLevel(m, "domain");
-      store.forget(m.id);
-      store.write(current, "pipeline");
+      store.upsert(current, "pipeline");
       promoted.push(m.id);
       calls += 1;
     } else if (shouldPromoteToGlobal(m, cfg)) {
       current = promoteLevel(m, "global");
-      store.forget(m.id);
-      store.write(current, "pipeline");
+      store.upsert(current, "pipeline");
       promoted.push(m.id);
       calls += 1;
     }
@@ -116,7 +128,7 @@ export async function consolidate(
           // budget exhausted: still emit template proposal
         } else {
           calls += 1;
-          const refined = await tryRefineProposalSkill(cfg, {
+          const refined = await createLlmClient(cfg).refineProposalSkill({
             id: current.id,
             title: current.title,
             content: current.content,
@@ -124,13 +136,11 @@ export async function consolidate(
           if (refined) skillBody = refined;
         }
       }
-      const dir = join(paths(home).capabilities, ".proposals", current.id);
-      mkdirSync(dir, { recursive: true });
-      writeFileSync(join(dir, "SKILL.md"), skillBody);
-      writeFileSync(
-        join(dir, "proposal.md"),
-        `# Proposal from ${current.id}\n\nstatus: pending review\n`,
-      );
+      new ProposalStore(home).writeDraft({
+        id: current.id,
+        skillMd: skillBody,
+        proposalMd: `# Proposal from ${current.id}\n\nstatus: pending review\n`,
+      });
       proposals.push(current.id);
     }
   }
@@ -138,5 +148,5 @@ export async function consolidate(
   const idx = new IndexStore(home);
   idx.rebuild(store);
   idx.close();
-  return { promoted, demoted, proposals };
+  return { promoted, demoted, proposals, expired };
 }

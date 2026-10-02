@@ -8,6 +8,7 @@ export {
 } from "./verify.js";
 export {
   consolidate,
+  shouldExpire,
   shouldPromoteToDomain,
   shouldPromoteToGlobal,
   demote,
