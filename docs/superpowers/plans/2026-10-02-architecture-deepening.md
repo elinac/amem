@@ -203,7 +203,7 @@
 
 - [x] `putConfig` 变为对 `applyEditableConfigPatch` 的薄调用。  
 - [x] 单测一轮：注释保留、privacy 不变、空 api_key 不覆盖、非法 patch 稳定错误。  
-- [ ] Panel 不再复制指纹/嵌套读取逻辑中与保存不变量重复的部分（可保留展示态）。
+- [x] Panel 不再复制指纹/嵌套读取逻辑中与保存不变量重复的部分（可保留展示态）。
 
 **非目标：** Config Panel **既有**可编辑字段集合不变（GLOSSARY 所述 LLM Connectivity 等）；不开放 embedding/privacy 编辑（现行表面，见 I3）。
 

@@ -14,6 +14,11 @@ import {
   proposalGateInputFromListRow,
   rollupProposalGateGaps,
 } from "./proposal-gates.js";
+import {
+  buildConfigPutBody,
+  editableFingerprint,
+  patchLlm,
+} from "./config-form.js";
 
 describe("enum locale keys", () => {
   it("provides Chinese labels for stored English enum values", () => {
@@ -136,5 +141,41 @@ describe("proposal gate helpers", () => {
     ]);
     expect(rollup.kind).toBe(1);
     expect(rollup.level).toBe(1);
+  });
+});
+
+describe("config-form put surface", () => {
+  it("fingerprints only editable put fields", () => {
+    const base = {
+      path: "/tmp/amem.toml",
+      config: {
+        llm: {
+          mode: "stub",
+          base_url: "",
+          model: "m",
+          api_key_env: "K",
+          has_api_key: false,
+          api_key_source: "none",
+        },
+        budget: { consolidate: { refine_proposals: false } },
+        privacy: { redact_patterns: ["X"] },
+      },
+      apiKeyReplacement: "",
+      baseline: "",
+    };
+    const fp1 = editableFingerprint(base);
+    const noisy = {
+      ...base,
+      config: { ...base.config, privacy: { redact_patterns: ["Y"] } },
+    };
+    expect(editableFingerprint(noisy)).toBe(fp1);
+    const edited = {
+      ...base,
+      config: patchLlm(base.config, { mode: "external" }),
+    };
+    expect(editableFingerprint(edited)).not.toBe(fp1);
+    const body = buildConfigPutBody({ ...edited, baseline: fp1 });
+    expect(body.config.llm.mode).toBe("external");
+    expect("privacy" in body.config).toBe(false);
   });
 });

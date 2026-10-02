@@ -31,6 +31,17 @@ import {
   rpcErrorMessage,
 } from "./api.js";
 import {
+  type ConfigFormState,
+  type LlmForm,
+  buildConfigPutBody,
+  editableFingerprint,
+  isConfigDirty,
+  patchLlm,
+  patchRefineProposals,
+  readLlmForm,
+  readRefineProposals,
+} from "./config-form.js";
+import {
   dominantGateRollup,
   formatGateGaps,
   proposalGateGaps,
@@ -105,89 +116,6 @@ type AsyncListState =
 
 function isListTab(t: Tab): boolean {
   return LIST_TABS.includes(t);
-}
-
-type ConfigFormState = {
-  path: string | null;
-  config: Record<string, unknown>;
-  apiKeyReplacement: string;
-  /** Fingerprint of the editable fields as loaded from disk; drives the dirty state. */
-  baseline: string;
-};
-
-type LlmForm = {
-  mode: string;
-  base_url: string;
-  model: string;
-  api_key_env: string;
-  has_api_key: boolean;
-  api_key_source: "inline" | "env" | "none";
-};
-
-function llmRecord(config: Record<string, unknown>): Record<string, unknown> {
-  return config.llm != null && typeof config.llm === "object" && !Array.isArray(config.llm)
-    ? (config.llm as Record<string, unknown>)
-    : {};
-}
-
-function readRefineProposals(config: Record<string, unknown>): boolean {
-  const budget =
-    config.budget != null && typeof config.budget === "object" && !Array.isArray(config.budget)
-      ? (config.budget as Record<string, unknown>)
-      : {};
-  const consolidate =
-    budget.consolidate != null &&
-    typeof budget.consolidate === "object" &&
-    !Array.isArray(budget.consolidate)
-      ? (budget.consolidate as Record<string, unknown>)
-      : {};
-  return consolidate.refine_proposals === true;
-}
-
-function readLlmForm(config: Record<string, unknown>): LlmForm {
-  const llm = llmRecord(config);
-  const hasKey = llm.has_api_key === true;
-  // Older payloads carry only `has_api_key`; assume inline in that case.
-  const source: LlmForm["api_key_source"] =
-    llm.api_key_source === "env"
-      ? "env"
-      : llm.api_key_source === "inline"
-        ? "inline"
-        : hasKey
-          ? "inline"
-          : "none";
-  return {
-    mode: typeof llm.mode === "string" ? llm.mode : "stub",
-    base_url: typeof llm.base_url === "string" ? llm.base_url : "",
-    model: typeof llm.model === "string" ? llm.model : "",
-    api_key_env: typeof llm.api_key_env === "string" ? llm.api_key_env : "",
-    has_api_key: hasKey,
-    api_key_source: source,
-  };
-}
-
-function patchLlm(
-  config: Record<string, unknown>,
-  patch: Partial<Pick<LlmForm, "mode" | "base_url" | "model" | "api_key_env">>,
-): Record<string, unknown> {
-  return { ...config, llm: { ...llmRecord(config), ...patch } };
-}
-
-/** Only the fields this tab can edit, so unrelated config keys never mark it dirty. */
-function editableFingerprint(state: ConfigFormState): string {
-  const llm = readLlmForm(state.config);
-  return JSON.stringify([
-    llm.mode,
-    llm.base_url,
-    llm.model,
-    llm.api_key_env,
-    readRefineProposals(state.config),
-    state.apiKeyReplacement.trim(),
-  ]);
-}
-
-function isConfigDirty(state: ConfigFormState | null): boolean {
-  return state != null && editableFingerprint(state) !== state.baseline;
 }
 
 function AmemPanel({ t: translate }: { t?: Translate }) {
@@ -495,10 +423,8 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
     setConfigBusy(true);
     setConfigMsg(null);
     setTabError(null);
-    const result = await rpc.config.put(
-      configState.config,
-      configState.apiKeyReplacement.trim() || undefined,
-    );
+    const put = buildConfigPutBody(configState);
+    const result = await rpc.config.put(put.config, put.api_key_replacement);
     if (!result.ok) {
       setConfigBusy(false);
       handleAuthError(result.error);
@@ -1111,28 +1037,11 @@ function AmemPanel({ t: translate }: { t?: Translate }) {
               style: { margin: 0, flex: "0 0 auto" },
               onChange: (e: { target: { checked: boolean } }) => {
                 const checked = e.target.checked;
-                setConfigState((prev) => {
-                  if (!prev) return prev;
-                  const budget =
-                    prev.config.budget != null &&
-                    typeof prev.config.budget === "object" &&
-                    !Array.isArray(prev.config.budget)
-                      ? { ...(prev.config.budget as Record<string, unknown>) }
-                      : {};
-                  const consolidate =
-                    budget.consolidate != null &&
-                    typeof budget.consolidate === "object" &&
-                    !Array.isArray(budget.consolidate)
-                      ? { ...(budget.consolidate as Record<string, unknown>) }
-                      : {};
-                  return {
-                    ...prev,
-                    config: {
-                      ...prev.config,
-                      budget: { ...budget, consolidate: { ...consolidate, refine_proposals: checked } },
-                    },
-                  };
-                });
+                setConfigState((prev) =>
+                  prev
+                    ? { ...prev, config: patchRefineProposals(prev.config, checked) }
+                    : prev,
+                );
               },
             }),
             createElement(
