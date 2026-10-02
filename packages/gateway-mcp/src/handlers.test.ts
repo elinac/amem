@@ -56,6 +56,23 @@ describe("gateway-mcp handlers", () => {
     expect(stats?.harmful).toBe(1);
   });
 
+  it("memory_recall includes decision reason and score parts", async () => {
+    const home = mkdtempSync(join(tmpdir(), "amem-mcp-"));
+    homes.push(home);
+    seed(home);
+    const h = createToolHandlers(home);
+    const r = await h.memory_recall({ query: "port" });
+    const body = JSON.parse(r.content[0]!.text) as {
+      l0: Array<{ decision: string; reason: string; parts?: { rel: number } }>;
+      dropped: unknown[];
+    };
+    expect(body.l0.length).toBeGreaterThan(0);
+    expect(body.l0[0]!.decision).toBeTruthy();
+    expect(body.l0[0]!.reason).toBeTruthy();
+    expect(body.l0[0]!.parts?.rel).toBeTypeOf("number");
+    expect(Array.isArray(body.dropped)).toBe(true);
+  });
+
   it("rejects invalid tool args", async () => {
     const home = mkdtempSync(join(tmpdir(), "amem-mcp-"));
     homes.push(home);

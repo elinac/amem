@@ -24,7 +24,7 @@ import {
   enqueueFlush,
   processQueue,
 } from "@amem/pipeline";
-import { buildContextPack, extractSituation, recall } from "@amem/retrieval";
+import { buildContextPack, decideRecall, extractSituation, recall } from "@amem/retrieval";
 import { ingestCursorTranscripts } from "@amem/adapter-cursor";
 import { compileCapabilities, materializeProposal } from "@amem/compiler";
 import { DshTokenStore, type DshAdminScope } from "@amem/adapter-dsh";
@@ -42,6 +42,7 @@ Usage:
   amem flush [--session <id>]
   amem worker
   amem recall "<query>"
+  amem pack "<query>"
   amem list [memories|skills|proposals|all] [--limit N]
   amem export --skills <name|all> [--out path.zip|dir] [--memories] [--proposals]
   amem consolidate [--dry-run]
@@ -311,13 +312,18 @@ async function main(): Promise<void> {
     const cfg = loadConfig(home);
     const sit = extractSituation({ query: q, userId: cfg.identity.user_id });
     const hits = recall(home, sit, 8);
+    const mode = cfg.recall.mode ?? "assist";
+    const decisions = decideRecall(hits, mode);
     console.log(
       JSON.stringify(
-        hits.map((h) => ({
-          id: h.memory.id,
-          title: h.memory.title,
-          score: h.score,
-          level: h.memory.scope.level,
+        decisions.map((d) => ({
+          id: d.memory.id,
+          title: d.memory.title,
+          score: d.score,
+          level: d.memory.scope.level,
+          decision: d.decision,
+          reason: d.reason,
+          parts: d.parts,
         })),
         null,
         2,

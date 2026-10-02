@@ -7,7 +7,7 @@ import {
   type MemoryRecord,
 } from "@amem/core";
 import { MemoryStore } from "@amem/store";
-import { buildContextPack, extractSituation, recall, recallAsync } from "@amem/retrieval";
+import { buildContextPack, decideRecall, extractSituation, recall, recallAsync } from "@amem/retrieval";
 import { enqueueFlush } from "@amem/pipeline";
 
 export type ToolResult = {
@@ -71,6 +71,8 @@ export function createToolHandlers(home = amemHome()) {
       const hits = c.embedding.enabled
         ? await recallAsync(home, sit, c, parsed.k ?? c.recall.l0_items)
         : recall(home, sit, parsed.k ?? c.recall.l0_items);
+      const mode = c.recall.mode ?? "assist";
+      const decisions = decideRecall(hits, mode);
       const pack = buildContextPack({
         home,
         cfg: c,
@@ -81,17 +83,23 @@ export function createToolHandlers(home = amemHome()) {
       });
       return text({
         pack_id: pack.pack_id,
-        l0: hits.map((h) => ({
-          id: h.memory.id,
-          title: h.memory.title,
-          applies_when: h.memory.applies_when,
-          score: h.score,
-          status: h.memory.status,
+        mode,
+        /** Gate drops also appear on context_pack.dropped when building a pack. */
+        l0: decisions.map((d) => ({
+          id: d.memory.id,
+          title: d.memory.title,
+          applies_when: d.memory.applies_when,
+          score: d.score,
+          status: d.memory.status,
+          decision: d.decision,
+          reason: d.reason,
+          parts: d.parts,
         })),
         l1: hits.slice(0, c.recall.l1_items).map((h) => ({
           id: h.memory.id,
           content: h.memory.content.slice(0, 300),
         })),
+        dropped: pack.dropped,
       });
     },
     async memory_get(args: unknown) {
