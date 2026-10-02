@@ -1,0 +1,45 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amem.local/eval/judgment.schema.json",
+  "title": "RecallJudgment",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "query", "relevant"],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "query": { "type": "string", "minLength": 1 },
+    "situation": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "userId": { "type": "string" },
+        "domains": { "type": "array", "items": { "type": "string" } },
+        "tools": { "type": "array", "items": { "type": "string" } },
+        "task_type": { "type": "string" },
+        "instance_id": { "type": "string" }
+      }
+    },
+    "relevant": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Memory ids that should appear in Top-K when relevant"
+    },
+    "harmful": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Memory ids that must not be injectable into a Context Pack"
+    },
+    "conflict_ids": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": [],
+      "description": "Ids expected to be conflict-related in the hit list"
+    },
+    "budget_tokens": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Optional pack budget override for this judgment"
+    }
+  }
+}

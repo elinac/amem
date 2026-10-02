@@ -1,0 +1,49 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://amem.local/eval/corpus-memory.schema.json",
+  "title": "EvalCorpusMemory",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "id",
+    "kind",
+    "title",
+    "content",
+    "applies_when",
+    "scope",
+    "trust",
+    "status"
+  ],
+  "properties": {
+    "id": { "type": "string", "minLength": 1 },
+    "kind": { "type": "string" },
+    "title": { "type": "string" },
+    "content": { "type": "string" },
+    "applies_when": { "type": "string" },
+    "not_applies_when": { "type": "string" },
+    "scope": {
+      "type": "object",
+      "required": ["level", "tags"],
+      "properties": {
+        "level": { "type": "string", "enum": ["instance", "domain", "global"] },
+        "tags": { "type": "object", "additionalProperties": true }
+      }
+    },
+    "trust": { "type": "string", "enum": ["T1", "T2", "T3"] },
+    "status": {
+      "type": "string",
+      "enum": ["candidate", "active", "superseded", "conflict", "frozen", "expired"]
+    },
+    "conflicts_with": { "type": "array", "items": { "type": "string" } },
+    "stats": {
+      "type": "object",
+      "properties": {
+        "recalled": { "type": "number" },
+        "adopted": { "type": "number" },
+        "helpful": { "type": "number" },
+        "harmful": { "type": "number" },
+        "lift": { "type": "number" }
+      }
+    }
+  }
+}
