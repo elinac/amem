@@ -148,6 +148,11 @@ async function main() {
   try {
     // 1) init
     runAmem(["init"], env);
+    // Token/CSRF/scope checks require auth on (product default is off for local single-user).
+    const { loadConfig, writeAmemConfigFile } = await import("../packages/core/dist/index.js");
+    const cfg = loadConfig(home);
+    cfg.dsh.admin.auth_enabled = true;
+    writeAmemConfigFile(home, cfg);
     pass("init");
 
     // 2) start adapter route test server (also creates auth/ directory)

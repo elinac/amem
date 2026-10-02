@@ -14,9 +14,13 @@
     "accept:p2": "node scripts/accept-p2.mjs",
     "accept:dsh-admin": "node scripts/accept-dsh-admin.mjs",
     "accept:dsh-path": "node scripts/accept-dsh-path.mjs",
+    "eval:recall": "node scripts/eval-recall.mjs",
+    "lint": "biome check packages scripts docs/README.md GLOSSARY.md CHANGELOG.md biome.json",
+    "lint:fix": "biome check --write packages scripts docs/README.md GLOSSARY.md CHANGELOG.md biome.json",
     "amem": "node packages/cli/dist/bin.js"
   },
   "devDependencies": {
+    "@biomejs/biome": "^1.9.4",
     "@types/node": "^22.13.10",
     "typescript": "^5.8.2",
     "vitest": "^3.0.9"
