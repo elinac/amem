@@ -53,9 +53,10 @@ export function normalizeCursorHook(
   eventName: string,
   rawInput: unknown,
   userId: string,
+  redactPatterns: string[] = [],
 ): CanonicalEvent[] {
   const raw = (typeof rawInput === "object" && rawInput ? rawInput : {}) as Raw;
-  const scrubbed = redactDeep(raw) as Raw;
+  const scrubbed = redactDeep(raw, "", { patterns: redactPatterns }) as Raw;
   // drop email
   delete scrubbed.user_email;
 

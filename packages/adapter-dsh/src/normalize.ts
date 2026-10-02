@@ -55,9 +55,10 @@ export function normalizeDshLifecycle(
 export function normalizeDshSessionEvent(
   event: unknown,
   meta: DshSessionMeta,
+  redactPatterns: string[] = [],
 ): CanonicalEvent[] {
   if (!event || typeof event !== "object") return [];
-  const ev = redactDeep(event) as {
+  const ev = redactDeep(event, "", { patterns: redactPatterns }) as {
     type?: unknown;
     time?: unknown;
     data?: unknown;

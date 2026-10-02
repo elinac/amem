@@ -13,9 +13,12 @@ export function normalizeClaudeHook(
   eventName: string,
   rawInput: unknown,
   userId: string,
+  redactPatterns: string[] = [],
 ): CanonicalEvent[] {
   const raw = redactDeep(
     typeof rawInput === "object" && rawInput ? rawInput : {},
+    "",
+    { patterns: redactPatterns },
   ) as Record<string, unknown>;
   const name = eventName.replace(/^claude:/, "");
   const session =

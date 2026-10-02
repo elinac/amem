@@ -168,8 +168,18 @@ export async function extractSession(
     };
     if (decision.action === "CONFLICT" && decision.target) {
       rec.supersedes = null;
-      // cross-link in content
+      rec.conflicts_with = [decision.target.id];
       rec.content += `\n\n⚠ conflicts with ${decision.target.id}`;
+      const peer = decision.target;
+      const peerLinks = new Set(peer.conflicts_with ?? []);
+      peerLinks.add(id);
+      peer.conflicts_with = [...peerLinks];
+      peer.status = "conflict";
+      if (!peer.content.includes(`conflicts with ${id}`)) {
+        peer.content += `\n\n⚠ conflicts with ${id}`;
+      }
+      peer.updated_at = new Date().toISOString();
+      memories.write(peer, "pipeline");
     }
     memories.write(rec, "pipeline");
     existing.push(rec);

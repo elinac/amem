@@ -17,7 +17,7 @@ import {
   loadConfig,
   paths,
 } from "@amem/core";
-import { EpisodeStore, IndexStore, MemoryStore } from "@amem/store";
+import { EpisodeStore, IndexStore, MemoryStore, ProposalStore, listConflicts, resolveConflict } from "@amem/store";
 import {
   consolidate,
   extractSession,
@@ -54,6 +54,9 @@ Usage:
   amem auth revoke <token-id>
   amem rebuild-index
   amem forget <id>
+  amem conflict list
+  amem conflict resolve <leftId> <rightId> keep_left|keep_right|keep_both
+  amem embed-backfill
 `);
 }
 
@@ -252,7 +255,7 @@ async function main(): Promise<void> {
       p.auth,
       p.capabilities,
       join(p.capabilities, "skills"),
-      join(p.capabilities, ".proposals"),
+      new ProposalStore(home).proposalsRoot(),
     ]) {
       mkdirSync(d, { recursive: true });
     }
@@ -327,8 +330,7 @@ async function main(): Promise<void> {
 
   if (cmd === "review") {
     if (argv[1] === "--list") {
-      const dir = join(paths(home).capabilities, ".proposals");
-      const list = existsSync(dir) ? readdirSync(dir) : [];
+      const list = new ProposalStore(home).list().map((p) => p.id);
       console.log(JSON.stringify({ proposals: list }, null, 2));
       return;
     }
@@ -587,6 +589,78 @@ async function main(): Promise<void> {
     const ok = new MemoryStore(home).forget(id);
     new IndexStore(home).rebuild(new MemoryStore(home));
     console.log(JSON.stringify({ forgot: ok }));
+    return;
+  }
+
+  if (cmd === "conflict") {
+    const sub = argv[1];
+    if (sub === "list") {
+      const pairs = listConflicts(home).map((p) => ({
+        left: { id: p.left.id, title: p.left.title, updated_at: p.left.updated_at },
+        right: { id: p.right.id, title: p.right.title, updated_at: p.right.updated_at },
+      }));
+      console.log(JSON.stringify({ conflicts: pairs }, null, 2));
+      return;
+    }
+    if (sub === "resolve") {
+      const leftId = argv[2];
+      const rightId = argv[3];
+      const action = argv[4] as "keep_left" | "keep_right" | "keep_both";
+      if (!leftId || !rightId || !action) {
+        throw new Error(
+          "usage: amem conflict resolve <leftId> <rightId> keep_left|keep_right|keep_both",
+        );
+      }
+      if (action !== "keep_left" && action !== "keep_right" && action !== "keep_both") {
+        throw new Error("action must be keep_left|keep_right|keep_both");
+      }
+      const store = new MemoryStore(home);
+      const left = store.readById(leftId);
+      const right = store.readById(rightId);
+      if (!left || !right) throw new Error("not_found");
+      const result = resolveConflict(home, {
+        leftId,
+        rightId,
+        action,
+        leftUpdatedAt: left.updated_at,
+        rightUpdatedAt: right.updated_at,
+      });
+      console.log(
+        JSON.stringify(
+          {
+            left: { id: result.left.id, status: result.left.status },
+            right: { id: result.right.id, status: result.right.status },
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    throw new Error("usage: amem conflict list | resolve ...");
+  }
+
+  if (cmd === "embed-backfill") {
+    const cfg = loadConfig(home);
+    if (!cfg.embedding.enabled) {
+      throw new Error("set [embedding] enabled = true in amem.toml first");
+    }
+    const { createLlmClient } = await import("@amem/llm");
+    const client = createLlmClient(cfg);
+    if (!client.embedTexts) throw new Error("llm client cannot embed");
+    const store = new MemoryStore(home);
+    const idx = new IndexStore(home);
+    let n = 0;
+    for (const m of store.listAll()) {
+      const text = `${m.title}\n${m.applies_when}\n${m.content.slice(0, 800)}`;
+      const vecs = await client.embedTexts([text]);
+      if (vecs?.[0]?.length) {
+        idx.upsertEmbedding(m.id, vecs[0]);
+        n += 1;
+      }
+    }
+    idx.close();
+    console.log(JSON.stringify({ embedded: n }));
     return;
   }
 

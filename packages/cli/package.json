@@ -15,6 +15,7 @@
                          "@amem/store":  "workspace:*",
                          "@amem/pipeline":  "workspace:*",
                          "@amem/retrieval":  "workspace:*",
+                         "@amem/llm":  "workspace:*",
                          "@amem/adapter-cursor":  "workspace:*",
                          "@amem/adapter-claude-code":  "workspace:*",
                          "@amem/adapter-dsh":  "workspace:*",

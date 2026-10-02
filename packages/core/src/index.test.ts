@@ -10,10 +10,12 @@ import {
   containsSecrets,
   evidenceQuotesValid,
   isSafeId,
+  memoryPath,
   normalizeWorkspaceRoot,
   paths,
   redactDeep,
   redactString,
+  isExcludedWorkspace,
   sanitizeId,
 } from "./index.js";
 
@@ -53,6 +55,24 @@ describe("sanitizeId", () => {
     expect(out).not.toContain("/");
     expect(out).not.toContain("\\");
   });
+
+  it("rejects dot segments and leading/trailing dots", () => {
+    for (const id of [".", "..", "...", ".hidden", "name."]) {
+      expect(isSafeId(id)).toBe(false);
+      expect(sanitizeId(id)).not.toBe(id);
+    }
+    expect(isSafeId("v1.2")).toBe(true);
+    expect(isSafeId("a")).toBe(true);
+  });
+});
+
+describe("memoryPath", () => {
+  it("rejects unsafe memory ids", () => {
+    expect(() => memoryPath("/h", "instance", "failure", "../escape")).toThrow();
+    expect(memoryPath("/h", "instance", "failure", "mem_ok")).toBe(
+      join("/h", "memories", "instance", "failure", "mem_ok.md"),
+    );
+  });
 });
 
 describe("redact", () => {
@@ -67,6 +87,20 @@ describe("redact", () => {
     expect(out.user_email).toBe("[redacted]");
     expect(containsSecrets("sk-abcdefghijklmnopqrstuvwxyz")).toBe(true);
     expect(redactString("hello")).toBe("hello");
+  });
+
+  it("applies privacy.redact_patterns and detects them", () => {
+    const patterns = ["INTERNAL-[0-9]+"];
+    expect(redactString("see INTERNAL-42 now", "", { patterns })).toContain("[redacted]");
+    expect(containsSecrets("INTERNAL-99", { patterns })).toBe(true);
+  });
+});
+
+describe("isExcludedWorkspace", () => {
+  it("matches exact and nested paths", () => {
+    expect(isExcludedWorkspace("/tmp/secret", ["/tmp/secret"])).toBe(true);
+    expect(isExcludedWorkspace("/tmp/secret/proj", ["/tmp/secret"])).toBe(true);
+    expect(isExcludedWorkspace("/tmp/other", ["/tmp/secret"])).toBe(false);
   });
 });
 

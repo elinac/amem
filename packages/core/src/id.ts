@@ -1,7 +1,10 @@
 import { createHash, randomBytes } from "node:crypto";
 
-/** Safe for use as a single path segment (no traversal / separators). */
-const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
+/**
+ * Safe for use as a single path segment (no traversal / separators).
+ * No leading/trailing dot: rules out `.`/`..`, and Windows strips trailing dots.
+ */
+const SAFE_ID = /^[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/;
 
 /** ULID-like sortable id: time prefix + random */
 export function newId(prefix: string): string {

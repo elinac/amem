@@ -4,27 +4,49 @@ import {
   type HostId,
   type MemoryRecord,
   type Situation,
+  atomicWriteJson,
   contextLayerPriority,
   newId,
+  paths,
   scopePriority,
 } from "@amem/core";
 import { IndexStore, MemoryStore } from "@amem/store";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { paths } from "@amem/core";
+import { decideRecall, injectableDecisions } from "./decide.js";
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
 }
 
-export function scoreMemory(m: MemoryRecord, situation: Situation, ftsRank: number): number {
-  const sim = 1 / (1 + Math.max(0, ftsRank + 5)); // bm25 often negative
+function tagOverlap(m: MemoryRecord, situation: Situation): number {
   let tag = 0;
   const domains = new Set(m.scope.tags.domains ?? []);
   for (const d of situation.domains) if (domains.has(d)) tag += 0.05;
   const tools = new Set(m.scope.tags.tools ?? []);
   for (const t of situation.tools) if (tools.has(t)) tag += 0.05;
   if (m.scope.tags.task_type && m.scope.tags.task_type === situation.task_type) tag += 0.05;
+  return tag;
+}
+
+/**
+ * Text relevance in [0, 1]. `ftsRank` is SQLite bm25 (more negative = better;
+ * 0 for the LIKE fallback); `null` means the memory was not a text hit.
+ * Any text hit scores ≥ 0.5 so it stays above tag-only matches.
+ */
+function textRelevance(ftsRank: number | null): number {
+  if (ftsRank === null) return 0;
+  const strength = Math.max(0, -ftsRank);
+  return 0.5 + 0.5 * (strength / (1 + strength));
+}
+
+export function scoreMemory(
+  m: MemoryRecord,
+  situation: Situation,
+  ftsRank: number | null,
+): number {
+  const rel = textRelevance(ftsRank);
+  const tag = tagOverlap(m, situation);
   const trustW = m.trust === "T1" ? 1 : m.trust === "T2" ? 0.7 : 0.4;
   let levelAdj = 0;
   if (m.scope.level === "instance") {
@@ -36,12 +58,10 @@ export function scoreMemory(m: MemoryRecord, situation: Situation, ftsRank: numb
   if (m.kind === "preference" && m.scope.tags.user !== situation.user_id) return -999;
   if (m.status === "frozen" || m.status === "expired" || m.status === "superseded") return -999;
   return (
-    0.4 * sim +
-    0.2 * Math.min(1, Math.abs(ftsRank) / 10) +
+    0.6 * rel +
     0.15 * Math.min(1, tag) +
     0.1 * trustW +
     0.1 * Math.max(-1, Math.min(1, m.stats.lift)) +
-    0.05 * 0.5 +
     levelAdj
   );
 }
@@ -54,9 +74,9 @@ export function recall(
   const store = new MemoryStore(home);
   const idx = new IndexStore(home);
   try {
-    idx.rebuild(store);
+    idx.ensure(store);
   } catch {
-    /* empty */
+    /* degraded: search may return empty until next rebuild */
   }
   const hits = idx.searchFts(situation.query, 50);
   idx.close();
@@ -74,7 +94,8 @@ export function recall(
   for (const m of byId.values()) {
     if (scored.some((s) => s.memory.id === m.id)) continue;
     if (m.status !== "active" && m.status !== "conflict") continue;
-    const score = scoreMemory(m, situation, 10);
+    if (tagOverlap(m, situation) === 0) continue;
+    const score = scoreMemory(m, situation, null);
     if (score > 0.15) scored.push({ memory: m, score });
   }
   scored.sort((a, b) => {
@@ -82,6 +103,58 @@ export function recall(
     return scopePriority(b.memory.scope.level) - scopePriority(a.memory.scope.level);
   });
   return scored.slice(0, k);
+}
+
+/**
+ * FTS recall plus optional embedding RRF when `cfg.embedding.enabled` and
+ * vectors exist. Falls back to lexical-only on any embed failure.
+ */
+export async function recallAsync(
+  home: string,
+  situation: Situation,
+  cfg: AmemConfig,
+  k = 8,
+): Promise<{ memory: MemoryRecord; score: number }[]> {
+  const lexical = recall(home, situation, Math.max(k, 20));
+  if (!cfg.embedding.enabled) return lexical.slice(0, k);
+
+  try {
+    const { createLlmClient } = await import("@amem/llm");
+    const client = createLlmClient(cfg);
+    const vectors = (await client.embedTexts?.([situation.query])) ?? null;
+    const q = vectors?.[0];
+    if (!q?.length) return lexical.slice(0, k);
+
+    const store = new MemoryStore(home);
+    const idx = new IndexStore(home);
+    idx.ensure(store);
+    const vecHits = idx.searchVec(q, 50);
+    idx.close();
+
+    const byId = new Map(store.listAll().map((m) => [m.id, m]));
+    const rrf = new Map<string, number>();
+    lexical.forEach((h, i) => {
+      rrf.set(h.memory.id, (rrf.get(h.memory.id) ?? 0) + 1 / (60 + i));
+    });
+    vecHits.forEach((h, i) => {
+      rrf.set(h.id, (rrf.get(h.id) ?? 0) + 1 / (60 + i));
+    });
+
+    const merged = [...rrf.entries()]
+      .map(([id, score]) => {
+        const memory = byId.get(id);
+        if (!memory) return null;
+        if (memory.status !== "active" && memory.status !== "conflict") return null;
+        const s = scoreMemory(memory, situation, null);
+        if (s <= -100) return null;
+        return { memory, score: score + Math.max(0, s) * 0.01 };
+      })
+      .filter((x): x is { memory: MemoryRecord; score: number } => !!x)
+      .sort((a, b) => b.score - a.score);
+    return merged.slice(0, k);
+  } catch {
+    return lexical.slice(0, k);
+  }
 }
 
 export function buildContextPack(opts: {
@@ -92,15 +165,31 @@ export function buildContextPack(opts: {
   host?: HostId;
   /** When provided, skip a second FTS rebuild/recall. */
   hits?: { memory: MemoryRecord; score: number }[];
+  /**
+   * Count packed memories in `stats.recalled`. Only for packs actually injected
+   * into an agent session; previews and debug commands must leave it off.
+   */
+  trackStats?: boolean;
 }): ContextPack {
   const hits = opts.hits ?? recall(opts.home, opts.situation, opts.cfg.recall.l0_items);
+  const mode = opts.cfg.recall.mode ?? "assist";
+  const decisions = decideRecall(hits, mode);
+  const inject = injectableDecisions(decisions, mode);
   const budget = opts.cfg.recall.budget_tokens;
   const items: ContextPack["items"] = [];
   const dropped: ContextPack["dropped"] = [];
+  for (const d of decisions) {
+    if (d.decision === "ignore" || (mode === "enforce" && d.decision === "verify") || mode === "shadow") {
+      if (!inject.some((i) => i.memory.id === d.memory.id)) {
+        dropped.push({ ref: d.memory.id, reason: d.reason });
+      }
+    }
+  }
   let used = 0;
   let l1 = 0;
-  for (const h of hits) {
-    const l0 = `${h.memory.title} — ${h.memory.applies_when}`;
+  for (const h of inject) {
+    const prefix = h.decision === "verify" ? "[verify] " : "";
+    const l0 = `${prefix}${h.memory.title} — ${h.memory.applies_when}`;
     const t0 = estimateTokens(l0);
     if (used + t0 > budget) {
       dropped.push({ ref: h.memory.id, reason: "budget" });
@@ -143,6 +232,10 @@ export function buildContextPack(opts: {
   };
   const dir = paths(opts.home).manifests;
   mkdirSync(dir, { recursive: true });
-  writeFileSync(join(dir, `${pack.pack_id}.json`), JSON.stringify(pack, null, 2));
+  atomicWriteJson(join(dir, `${pack.pack_id}.json`), pack);
+  if (opts.trackStats) {
+    const packed = new Set(items.map((i) => i.ref.replace(/#l1$/, "")));
+    new MemoryStore(opts.home).recordRecalled(packed);
+  }
   return pack;
 }

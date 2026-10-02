@@ -6,10 +6,9 @@ import {
   readFileSync,
   renameSync,
   rmSync,
-  writeFileSync,
 } from "node:fs";
 import { join } from "node:path";
-import { loadConfig, paths, sanitizeId } from "@amem/core";
+import { atomicWriteJson, loadConfig, paths, sanitizeId } from "@amem/core";
 import { extractSession } from "./extract.js";
 
 export function enqueueFlush(home: string, sessionId: string): string {
@@ -17,7 +16,11 @@ export function enqueueFlush(home: string, sessionId: string): string {
   mkdirSync(dir, { recursive: true });
   const sid = sanitizeId(sessionId);
   const file = join(dir, `flush-${sid}-${Date.now()}.json`);
-  writeFileSync(file, JSON.stringify({ type: "flush", sessionId: sid, at: new Date().toISOString() }));
+  atomicWriteJson(file, {
+    type: "flush",
+    sessionId: sid,
+    at: new Date().toISOString(),
+  });
   return file;
 }
 

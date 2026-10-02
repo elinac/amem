@@ -98,12 +98,23 @@ server.setRequestHandler(ListToolsRequestSchema, async () => ({
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const name = req.params.name;
   const args = (req.params.arguments ?? {}) as Record<string, unknown>;
-  const table = tools as Record<string, (a: never) => Promise<unknown>>;
+  const table = tools as Record<string, (a: unknown) => Promise<unknown>>;
   if (!Object.hasOwn(table, name)) {
     return { content: [{ type: "text", text: `unknown tool ${name}` }], isError: true };
   }
-  const fn = table[name]!;
-  return (await fn(args as never)) as { content: { type: "text"; text: string }[] };
+  try {
+    const fn = table[name]!;
+    return (await fn(args)) as {
+      content: { type: "text"; text: string }[];
+      isError?: boolean;
+    };
+  } catch (e) {
+    const message = e instanceof Error ? e.message : String(e);
+    return {
+      content: [{ type: "text", text: JSON.stringify({ error: "tool_failed", message }) }],
+      isError: true,
+    };
+  }
 });
 
 const transport = new StdioServerTransport();

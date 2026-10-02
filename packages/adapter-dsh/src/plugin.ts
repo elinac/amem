@@ -2,7 +2,7 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
-import { loadConfig, paths } from "@amem/core";
+import { loadConfig, paths, isExcludedWorkspace } from "@amem/core";
 import { createAdmin } from "./admin.js";
 import { DshTokenStore } from "./auth-store.js";
 import { BrowserSessionManager } from "./browser-session.js";
@@ -177,7 +177,9 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
   const cliPath = config?.cliPath;
 
   mkdirSync(paths(home).auth, { recursive: true });
-  const cfg = loadConfig(home).dsh.admin;
+  const fullCfg = loadConfig(home);
+  const cfg = fullCfg.dsh.admin;
+  const privacy = fullCfg.privacy;
   const admin = createAdmin(home);
   const tokenStore = new DshTokenStore(home);
   const sessions = new BrowserSessionManager(home, cfg, tokenStore);
@@ -189,6 +191,9 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
       safe(() => {
         const s = session as SessionLike;
         const meta = sessionMeta(s, userId);
+        if ((meta.workspace_roots ?? []).some((r) => isExcludedWorkspace(r, privacy.exclude_workspaces))) {
+          return;
+        }
         appendCanonical(home, meta.session_id, normalizeDshLifecycle("session_start", meta));
       });
     });
@@ -197,7 +202,10 @@ export function apply(ctx: DshPluginContext, config?: Partial<AmemDshPluginConfi
       safe(() => {
         const s = session as SessionLike;
         const meta = sessionMeta(s, userId);
-        const events = normalizeDshSessionEvent(event, meta);
+        if ((meta.workspace_roots ?? []).some((r) => isExcludedWorkspace(r, privacy.exclude_workspaces))) {
+          return;
+        }
+        const events = normalizeDshSessionEvent(event, meta, privacy.redact_patterns);
         appendCanonical(home, meta.session_id, events);
         const ev = event as { type?: string };
         if (ev?.type === "turn/end") {

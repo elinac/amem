@@ -1,7 +1,8 @@
-import { appendFileSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { appendFileSync, existsSync, mkdirSync } from "node:fs";
 import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { type CanonicalEvent, sanitizeId } from "@amem/core";
+import { enqueueFlush as pipelineEnqueueFlush } from "@amem/pipeline";
 
 export function appendCanonical(
   amemHome: string,
@@ -18,13 +19,9 @@ export function appendCanonical(
   }
 }
 
+/** Single source: same JSON shape as `@amem/pipeline` worker queue. */
 export function enqueueFlush(amemHome: string, sessionId: string): string {
-  const sid = sanitizeId(sessionId);
-  const qdir = join(amemHome, "queue");
-  mkdirSync(qdir, { recursive: true });
-  const file = join(qdir, `flush-${sid}-${Date.now()}.json`);
-  writeFileSync(file, JSON.stringify({ type: "flush", sessionId: sid }));
-  return file;
+  return pipelineEnqueueFlush(amemHome, sessionId);
 }
 
 export function wakeWorker(amemHome: string, cliPath?: string): void {

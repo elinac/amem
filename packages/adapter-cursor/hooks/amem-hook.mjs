@@ -1,5 +1,5 @@
 // Production Cursor hook: normalize → spool → queue flush on sessionEnd; fail-open.
-import { appendFileSync, mkdirSync, writeFileSync, existsSync } from "node:fs";
+import { appendFileSync, mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { homedir } from "node:os";
@@ -8,7 +8,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 
 const event = process.argv[2] ?? "unknown";
 const home = process.env.AMEM_HOME ?? join(homedir(), ".amem");
-const SAFE_ID = /^[A-Za-z0-9._-]{1,128}$/;
+// Keep in sync with SAFE_ID in @amem/core id.ts (hook runs without workspace deps).
+const SAFE_ID = /^[A-Za-z0-9_-](?:[A-Za-z0-9._-]{0,126}[A-Za-z0-9_-])?$/;
 
 function sanitizeId(id) {
   const s = String(id ?? "").trim();
@@ -19,6 +20,44 @@ function sanitizeId(id) {
 function respond() {
   process.stdout.write(event === "beforeSubmitPrompt" ? '{"continue":true}' : "{}");
   process.exit(0);
+}
+
+function workspaceRoots(raw) {
+  const roots = raw.workspace_roots;
+  if (!Array.isArray(roots)) return [];
+  return roots.map(String);
+}
+
+function isExcluded(root, excludes) {
+  if (!root || !excludes.length) return false;
+  const norm = (p) => p.replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+  const r = norm(root);
+  for (const ex of excludes) {
+    const e = norm(String(ex ?? ""));
+    if (!e) continue;
+    if (r === e || r.startsWith(`${e}/`)) return true;
+  }
+  return false;
+}
+
+/** Lightweight privacy read without depending on full TOML parser in fail-open hook. */
+function loadPrivacyLite() {
+  try {
+    const text = readFileSync(join(home, "amem.toml"), "utf8");
+    const patterns = [];
+    const excludes = [];
+    const pat = text.match(/redact_patterns\s*=\s*\[([^\]]*)\]/);
+    if (pat) {
+      for (const m of pat[1].matchAll(/"((?:\\.|[^"\\])*)"/g)) patterns.push(m[1].replace(/\\"/g, '"'));
+    }
+    const ex = text.match(/exclude_workspaces\s*=\s*\[([^\]]*)\]/);
+    if (ex) {
+      for (const m of ex[1].matchAll(/"((?:\\.|[^"\\])*)"/g)) excludes.push(m[1].replace(/\\"/g, '"'));
+    }
+    return { patterns, excludes };
+  } catch {
+    return { patterns: [], excludes: [] };
+  }
 }
 
 let settled = false;
@@ -34,7 +73,13 @@ async function run(rawText) {
       raw = { _unparsed: body.slice(0, 500) };
     }
 
-    // dynamic import compiled adapter if present; else write raw spool only
+    const privacy = loadPrivacyLite();
+    const roots = workspaceRoots(raw);
+    if (roots.some((r) => isExcluded(r, privacy.excludes))) {
+      respond();
+      return;
+    }
+
     let events = [];
     try {
       const adapterPath = join(
@@ -43,7 +88,12 @@ async function run(rawText) {
       );
       if (existsSync(adapterPath)) {
         const mod = await import(pathToFileURL(adapterPath).href);
-        events = mod.normalizeCursorHook(event, raw, process.env.USER ?? "local");
+        events = mod.normalizeCursorHook(
+          event,
+          raw,
+          process.env.USER ?? "local",
+          privacy.patterns,
+        );
       }
     } catch {
       events = [];
@@ -55,7 +105,6 @@ async function run(rawText) {
     for (const ev of events) {
       appendFileSync(spool, `${JSON.stringify(ev)}\n`);
     }
-    // always keep raw sample (bounded) for adapter calibration
     mkdirSync(join(home, "spool", "raw"), { recursive: true });
     const day = new Date().toISOString().slice(0, 10);
     appendFileSync(
@@ -68,9 +117,8 @@ async function run(rawText) {
       mkdirSync(qdir, { recursive: true });
       writeFileSync(
         join(qdir, `flush-${sessionId}-${Date.now()}.json`),
-        JSON.stringify({ type: "flush", sessionId }),
+        JSON.stringify({ type: "flush", sessionId, at: new Date().toISOString() }),
       );
-      // detached worker best-effort
       const cli = join(dirname(fileURLToPath(import.meta.url)), "../../cli/dist/bin.js");
       if (existsSync(cli)) {
         const child = spawn(process.execPath, [cli, "worker"], {
