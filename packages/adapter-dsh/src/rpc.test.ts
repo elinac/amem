@@ -303,6 +303,8 @@ describe("rpc registry", () => {
       "proposal.list": false,
       "proposal.apply": true,
       "ops.doctor": false,
+      "ops.failed.list": false,
+      "ops.failed.purge": true,
       "ops.flush": true,
       "ops.rebuild": true,
       "ops.consolidate": true,

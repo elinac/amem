@@ -25,12 +25,38 @@ describe("admin ops", () => {
     const r = createAdmin(h).doctor();
     expect(r.ok).toBe(true);
     if (!r.ok) return;
-    const data = r.data as { home: string; checks: unknown[] };
+    const data = r.data as {
+      home: string;
+      status: string;
+      checks: Array<{ id: string; value: unknown }>;
+      actions: unknown[];
+    };
     expect(data.home).toBe(h);
-    expect(data.checks.some((c) => Array.isArray(c) && c[0] === "config" && c[1] === true)).toBe(true);
-    expect(
-      data.checks.some((c) => Array.isArray(c) && c[0] === "index_schema_expected" && c[1] === 1),
-    ).toBe(true);
+    expect(data.status).toBeTruthy();
+    expect(data.checks.some((c) => c.id === "config" && c.value === true)).toBe(true);
+    expect(data.checks.some((c) => c.id === "index_schema_expected" && c.value === 1)).toBe(true);
+  });
+
+  it("doctor surfaces failed queue", () => {
+    const h = setupHome();
+    const failedDir = join(paths(h).queue, "failed");
+    mkdirSync(failedDir, { recursive: true });
+    writeFileSync(join(failedDir, "flush-x.json"), "{}");
+    const r = createAdmin(h).doctor();
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    const data = r.data as {
+      checks: Array<{ id: string; value: unknown }>;
+      actions: Array<{ id: string }>;
+    };
+    expect(data.checks.some((c) => c.id === "queue_failed" && c.value === 1)).toBe(true);
+    expect(data.actions.some((a) => a.id === "inspect_failed")).toBe(true);
+    const listed = createAdmin(h).listFailed();
+    expect(listed.ok).toBe(true);
+    if (!listed.ok) return;
+    expect((listed.data as { items: unknown[] }).items).toHaveLength(1);
+    const purged = createAdmin(h).purgeFailed();
+    expect(purged.ok).toBe(true);
   });
 
   it("flush rejects path-like sessionId", async () => {

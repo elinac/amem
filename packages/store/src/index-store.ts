@@ -95,8 +95,16 @@ export class IndexStore {
   }
 
   isEmpty(): boolean {
-    const row = this.db.prepare(`SELECT COUNT(*) AS n FROM mem`).get() as { n: number };
-    return (row?.n ?? 0) === 0;
+    return this.countMemories() === 0;
+  }
+
+  countMemories(): number {
+    try {
+      const row = this.db.prepare(`SELECT COUNT(*) AS n FROM mem`).get() as { n: number };
+      return row?.n ?? 0;
+    } catch {
+      return 0;
+    }
   }
 
   rebuild(store: MemoryStore): number {

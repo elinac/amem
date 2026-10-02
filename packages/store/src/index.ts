@@ -18,6 +18,18 @@ export {
   clearCrashHooks,
   type CrashHooks,
 } from "./crash-hooks.js";
+export {
+  runDoctor,
+  listFailedJobs,
+  purgeFailedJobs,
+  countFailedJobs,
+  countPendingJobs,
+  type DoctorReport,
+  type DoctorStatus,
+  type DoctorCheck,
+  type DoctorAction,
+  type FailedJobInfo,
+} from "./doctor.js";
 
 import { IndexStore as Idx } from "./index-store.js";
 import { MemoryStore as Mem } from "./memory.js";

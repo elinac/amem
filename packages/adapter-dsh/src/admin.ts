@@ -1,4 +1,3 @@
-import { existsSync, readdirSync } from "node:fs";
 import {
   MEMORY_KINDS,
   MEMORY_PAGE_SIZES,
@@ -17,9 +16,8 @@ import {
   isSafeId,
   loadConfig,
   newId,
-  paths,
 } from "@amem/core";
-import { IndexStore, MemoryStore, INDEX_SCHEMA_VERSION } from "@amem/store";
+import { IndexStore, MemoryStore, runDoctor, listFailedJobs, purgeFailedJobs } from "@amem/store";
 import { buildContextPack, extractSituation, recall } from "@amem/retrieval";
 import {
   compileCapabilities,
@@ -302,24 +300,16 @@ export function createAdmin(home = defaultAmemHome()) {
     },
 
     doctor(): AdminResult {
-      const p = paths(home);
-      const idx = new IndexStore(home);
-      let indexSchemaVersion = 0;
-      try {
-        indexSchemaVersion = idx.schemaVersion();
-      } finally {
-        idx.close();
-      }
-      const checks: Array<[string, unknown]> = [
-        ["home", existsSync(home)],
-        ["config", existsSync(p.config)],
-        ["node", process.versions.node],
-        ["spool_raw_files", existsSync(p.spoolRaw) ? readdirSync(p.spoolRaw).length : 0],
-        ["index_schema_version", indexSchemaVersion],
-        ["index_schema_expected", INDEX_SCHEMA_VERSION],
-        ["index_schema_ok", indexSchemaVersion === INDEX_SCHEMA_VERSION],
-      ];
-      return { ok: true, data: { home, checks } };
+      return { ok: true, data: runDoctor(home) };
+    },
+
+    listFailed(limit?: number): AdminResult {
+      const items = listFailedJobs(home, limit ?? 20);
+      return { ok: true, data: { items, total: items.length } };
+    },
+
+    purgeFailed(names?: string[]): AdminResult {
+      return { ok: true, data: purgeFailedJobs(home, names) };
     },
 
     async flush(sessionId?: string | null): Promise<AdminResult> {

@@ -17,7 +17,7 @@ import {
   loadConfig,
   paths,
 } from "@amem/core";
-import { EpisodeStore, IndexStore, MemoryStore, ProposalStore, listConflicts, resolveConflict, INDEX_SCHEMA_VERSION } from "@amem/store";
+import { EpisodeStore, IndexStore, MemoryStore, ProposalStore, listConflicts, resolveConflict, INDEX_SCHEMA_VERSION, runDoctor, listFailedJobs, purgeFailedJobs } from "@amem/store";
 import {
   consolidate,
   extractSession,
@@ -39,6 +39,8 @@ function help(): void {
 Usage:
   amem init
   amem doctor
+  amem failed list
+  amem failed purge [--all | <name>...]
   amem flush [--session <id>]
   amem worker
   amem recall "<query>"
@@ -270,25 +272,27 @@ async function main(): Promise<void> {
   }
 
   if (cmd === "doctor") {
-    const p = paths(home);
-    const idx = new IndexStore(home);
-    let indexSchemaVersion = 0;
-    try {
-      indexSchemaVersion = idx.schemaVersion();
-    } finally {
-      idx.close();
-    }
-    const checks = [
-      ["home", existsSync(home)],
-      ["config", existsSync(p.config)],
-      ["node", process.versions.node],
-      ["spool_raw_files", existsSync(p.spoolRaw) ? readdirSync(p.spoolRaw).length : 0],
-      ["index_schema_version", indexSchemaVersion],
-      ["index_schema_expected", INDEX_SCHEMA_VERSION],
-      ["index_schema_ok", indexSchemaVersion === INDEX_SCHEMA_VERSION],
-    ];
-    console.log(JSON.stringify({ home, checks }, null, 2));
+    console.log(JSON.stringify(runDoctor(home), null, 2));
     return;
+  }
+
+  if (cmd === "failed") {
+    const sub = argv[1];
+    if (sub === "list") {
+      console.log(JSON.stringify({ items: listFailedJobs(home, 50) }, null, 2));
+      return;
+    }
+    if (sub === "purge") {
+      const rest = argv.slice(2);
+      const all = rest.includes("--all");
+      const names = all ? undefined : rest.filter((a) => a !== "--all");
+      if (!all && (!names || names.length === 0)) {
+        throw new Error("usage: amem failed purge --all | <name>...");
+      }
+      console.log(JSON.stringify(purgeFailedJobs(home, names), null, 2));
+      return;
+    }
+    throw new Error("usage: amem failed list|purge");
   }
 
   if (cmd === "flush") {

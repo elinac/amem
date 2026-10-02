@@ -17,6 +17,8 @@ export const RPC_METHODS = [
   "proposal.list",
   "proposal.apply",
   "ops.doctor",
+  "ops.failed.list",
+  "ops.failed.purge",
   "ops.flush",
   "ops.rebuild",
   "ops.consolidate",
@@ -231,6 +233,32 @@ const registry: Record<RpcMethod, RpcMethodDef<unknown, unknown>> = {
     scope: "ops:doctor",
     parse: () => undefined,
     run: (admin) => invokeAdmin(admin.doctor()),
+  },
+  "ops.failed.list": {
+    scope: "ops:doctor",
+    parse: (p) => {
+      if (p == null || typeof p !== "object" || Array.isArray(p)) return { limit: undefined };
+      const limit = (p as { limit?: unknown }).limit;
+      if (limit == null) return { limit: undefined };
+      if (typeof limit !== "number" || !Number.isInteger(limit) || limit < 1 || limit > 100) {
+        throw new RpcParseError("limit must be an integer 1..100");
+      }
+      return { limit };
+    },
+    run: (admin, p) => invokeAdmin(admin.listFailed((p as { limit?: number }).limit)),
+  },
+  "ops.failed.purge": {
+    scope: "ops:flush",
+    parse: (p) => {
+      if (p == null || typeof p !== "object" || Array.isArray(p)) return { names: undefined };
+      const names = (p as { names?: unknown }).names;
+      if (names == null) return { names: undefined };
+      if (!Array.isArray(names) || !names.every((n) => typeof n === "string")) {
+        throw new RpcParseError("names must be a string array");
+      }
+      return { names: names as string[] };
+    },
+    run: (admin, p) => invokeAdmin(admin.purgeFailed((p as { names?: string[] }).names)),
   },
   "ops.flush": {
     scope: "ops:flush",
