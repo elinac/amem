@@ -5,6 +5,9 @@ import type { MemoryRecord } from "@amem/core";
 import { paths } from "@amem/core";
 import type { MemoryStore } from "./memory.js";
 
+/** Bump when table layout or FTS/vec contract changes; ensure() rebuilds on mismatch. */
+export const INDEX_SCHEMA_VERSION = 1;
+
 function cosine(a: number[], b: number[]): number {
   let dot = 0;
   let na = 0;
@@ -19,6 +22,12 @@ function cosine(a: number[], b: number[]): number {
   if (na === 0 || nb === 0) return 0;
   return dot / (Math.sqrt(na) * Math.sqrt(nb));
 }
+
+export type EnsureResult = {
+  rebuilt: boolean;
+  schemaVersion: number;
+  indexed?: number;
+};
 
 export class IndexStore {
   private db: DatabaseSync;
@@ -59,11 +68,30 @@ export class IndexStore {
       CREATE VIRTUAL TABLE IF NOT EXISTS mem_fts USING fts5(
         id UNINDEXED, title, applies_when, body
       );
+      CREATE TABLE IF NOT EXISTS mem_vec (
+        id TEXT PRIMARY KEY,
+        dim INT,
+        vector TEXT
+      );
     `);
   }
 
   close(): void {
     this.db.close();
+  }
+
+  schemaVersion(): number {
+    const row = this.db.prepare(`PRAGMA user_version`).get() as { user_version: number };
+    return row?.user_version ?? 0;
+  }
+
+  private setSchemaVersion(version: number): void {
+    this.db.exec(`PRAGMA user_version = ${version}`);
+  }
+
+  /** Test helper: simulate an older on-disk schema version. */
+  forceSchemaVersion(version: number): void {
+    this.setSchemaVersion(version);
   }
 
   isEmpty(): boolean {
@@ -72,7 +100,7 @@ export class IndexStore {
   }
 
   rebuild(store: MemoryStore): number {
-    this.db.exec("DELETE FROM mem_tag; DELETE FROM mem_stat; DELETE FROM mem;");
+    this.db.exec("DELETE FROM mem_tag; DELETE FROM mem_stat; DELETE FROM mem; DELETE FROM mem_vec;");
     try {
       this.db.exec("DELETE FROM mem_fts;");
     } catch {
@@ -85,13 +113,25 @@ export class IndexStore {
     for (const m of rows) {
       this.upsertMemory(m, store.pathFor(m));
     }
+    this.setSchemaVersion(INDEX_SCHEMA_VERSION);
     return rows.length;
   }
 
-  ensure(store: MemoryStore): void {
-    if (!this.isEmpty()) return;
-    if (store.listAll().length === 0) return;
-    this.rebuild(store);
+  /**
+   * Rebuild when schema version mismatches, or when the index is empty but
+   * Markdown memories exist.
+   */
+  ensure(store: MemoryStore): EnsureResult {
+    const ver = this.schemaVersion();
+    const empty = this.isEmpty();
+    const memoryCount = store.listAll().length;
+    const versionOk = ver === INDEX_SCHEMA_VERSION;
+    const needsFill = empty && memoryCount > 0;
+    if (versionOk && !needsFill) {
+      return { rebuilt: false, schemaVersion: ver };
+    }
+    const indexed = this.rebuild(store);
+    return { rebuilt: true, schemaVersion: INDEX_SCHEMA_VERSION, indexed };
   }
 
   searchFts(query: string, limit = 20): { id: string; rank: number }[] {
@@ -133,16 +173,9 @@ export class IndexStore {
       /* next ensure/rebuild repairs */
     }
     try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS mem_vec (
-          id TEXT PRIMARY KEY,
-          dim INT,
-          vector TEXT
-        );
-      `);
       this.db.prepare(`DELETE FROM mem_vec WHERE id = ?`).run(id);
     } catch {
-      /* optional table */
+      /* optional on pre-migration dbs */
     }
   }
 
@@ -191,13 +224,6 @@ export class IndexStore {
   /** Persist an embedding vector (JSON float array). No-op when empty. */
   upsertEmbedding(id: string, vector: number[]): void {
     if (!vector.length) return;
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS mem_vec (
-        id TEXT PRIMARY KEY,
-        dim INT,
-        vector TEXT
-      );
-    `);
     this.db.prepare(`DELETE FROM mem_vec WHERE id = ?`).run(id);
     this.db
       .prepare(`INSERT INTO mem_vec(id, dim, vector) VALUES (?,?,?)`)
@@ -207,13 +233,6 @@ export class IndexStore {
   searchVec(query: number[], limit = 20): { id: string; score: number }[] {
     if (!query.length) return [];
     try {
-      this.db.exec(`
-        CREATE TABLE IF NOT EXISTS mem_vec (
-          id TEXT PRIMARY KEY,
-          dim INT,
-          vector TEXT
-        );
-      `);
       const rows = this.db.prepare(`SELECT id, vector FROM mem_vec`).all() as {
         id: string;
         vector: string;

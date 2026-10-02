@@ -17,7 +17,7 @@ import {
   loadConfig,
   paths,
 } from "@amem/core";
-import { EpisodeStore, IndexStore, MemoryStore, ProposalStore, listConflicts, resolveConflict } from "@amem/store";
+import { EpisodeStore, IndexStore, MemoryStore, ProposalStore, listConflicts, resolveConflict, INDEX_SCHEMA_VERSION } from "@amem/store";
 import {
   consolidate,
   extractSession,
@@ -270,11 +270,21 @@ async function main(): Promise<void> {
 
   if (cmd === "doctor") {
     const p = paths(home);
+    const idx = new IndexStore(home);
+    let indexSchemaVersion = 0;
+    try {
+      indexSchemaVersion = idx.schemaVersion();
+    } finally {
+      idx.close();
+    }
     const checks = [
       ["home", existsSync(home)],
       ["config", existsSync(p.config)],
       ["node", process.versions.node],
       ["spool_raw_files", existsSync(p.spoolRaw) ? readdirSync(p.spoolRaw).length : 0],
+      ["index_schema_version", indexSchemaVersion],
+      ["index_schema_expected", INDEX_SCHEMA_VERSION],
+      ["index_schema_ok", indexSchemaVersion === INDEX_SCHEMA_VERSION],
     ];
     console.log(JSON.stringify({ home, checks }, null, 2));
     return;

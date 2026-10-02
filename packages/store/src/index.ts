@@ -1,6 +1,10 @@
 export { EpisodeStore } from "./episode.js";
 export { MemoryStore } from "./memory.js";
-export { IndexStore } from "./index-store.js";
+export {
+  IndexStore,
+  INDEX_SCHEMA_VERSION,
+  type EnsureResult,
+} from "./index-store.js";
 export { ProposalStore, type ProposalRow } from "./proposal.js";
 export { syncMemoryIndex, dropMemoryIndex } from "./sync.js";
 export {

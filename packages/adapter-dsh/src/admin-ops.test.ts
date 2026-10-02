@@ -28,6 +28,9 @@ describe("admin ops", () => {
     const data = r.data as { home: string; checks: unknown[] };
     expect(data.home).toBe(h);
     expect(data.checks.some((c) => Array.isArray(c) && c[0] === "config" && c[1] === true)).toBe(true);
+    expect(
+      data.checks.some((c) => Array.isArray(c) && c[0] === "index_schema_expected" && c[1] === 1),
+    ).toBe(true);
   });
 
   it("flush rejects path-like sessionId", async () => {

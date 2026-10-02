@@ -7,6 +7,7 @@ import {
   EpisodeStore,
   MemoryStore,
   IndexStore,
+  INDEX_SCHEMA_VERSION,
   ProposalStore,
   resolveConflict,
   setCrashHooks,
@@ -107,6 +108,41 @@ describe("MemoryStore + Index", () => {
     expect(idx.rebuild(mem)).toBe(1);
     const hits = idx.searchFts("port");
     expect(hits.some((h) => h.id === rec.id)).toBe(true);
+    expect(idx.schemaVersion()).toBe(INDEX_SCHEMA_VERSION);
+    idx.close();
+  });
+
+  it("ensure rebuilds when schema version mismatches", () => {
+    const home = tmpHome();
+    const mem = new MemoryStore(home);
+    const rec: MemoryRecord = {
+      id: "mem_ver",
+      kind: "failure",
+      title: "version",
+      content: "body",
+      applies_when: "when",
+      scope: { level: "domain", tags: { user: "u", domains: ["d"] } },
+      trust: "T3",
+      status: "active",
+      evidence: { episodes: ["ep1"], count: 1, distinct_instances: 1, distinct_domains: 1 },
+      stats: { recalled: 0, adopted: 0, helpful: 0, harmful: 0, lift: 0 },
+      validity: { depends_on: [], valid_from: "2026-09-26" },
+      created_by: "test",
+      updated_at: new Date().toISOString(),
+    };
+    mem.write(rec);
+    const idx = new IndexStore(home);
+    idx.rebuild(mem);
+    expect(idx.schemaVersion()).toBe(INDEX_SCHEMA_VERSION);
+    // Simulate stale schema by forcing user_version down.
+    idx.forceSchemaVersion(0);
+    expect(idx.schemaVersion()).toBe(0);
+    const result = idx.ensure(mem);
+    expect(result.rebuilt).toBe(true);
+    expect(result.schemaVersion).toBe(INDEX_SCHEMA_VERSION);
+    expect(idx.schemaVersion()).toBe(INDEX_SCHEMA_VERSION);
+    expect(idx.searchFts("version").some((h) => h.id === "mem_ver")).toBe(true);
+    expect(idx.ensure(mem).rebuilt).toBe(false);
     idx.close();
   });
 
