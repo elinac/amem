@@ -185,9 +185,9 @@ export class BrowserSessionManager {
     if (!this.validateLocalAccess(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
-    // Same CSRF-site posture as authenticated mode: mutating RPC must present an
-    // allowed Sec-Fetch-Site (same-origin | same-site | none). Browsers always send it.
-    if (isMutating(required) && !this.validateSecFetchSite(meta)) {
+    // Auth-off / local identity: embedded DSH workbenches often omit Sec-Fetch-Site
+    // (clients cannot forge it). Allow missing; still reject explicit cross-site.
+    if (isMutating(required) && meta.secFetchSite != null && !this.validateSecFetchSite(meta)) {
       return { ok: false, error: "unauthenticated" };
     }
     return { ok: true, tokenId: "local", scopes: [...ALL_DSH_ADMIN_SCOPES] };

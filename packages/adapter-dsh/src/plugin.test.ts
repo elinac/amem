@@ -251,24 +251,37 @@ describe("/amem-api independent auth routes", () => {
     expect((json() as { ok: boolean }).ok).toBe(true);
   });
 
-  it("rejects mutating RPC without sec-fetch-site when auth is disabled", async () => {
+  it("allows mutating RPC without sec-fetch-site when auth is disabled", async () => {
     const handler = mountHandler(tempAmemHome());
-    const { res, status, json } = mockRes();
-    await handler(
-      mockReq("POST", "/amem-api/rpc", {
-        body: JSON.stringify({ id: "1", method: "ops.rebuild", params: {} }),
-        headers: { origin: "http://127.0.0.1:7788", host: "127.0.0.1:7788" },
-      }),
-      res,
-    );
-    expect(status()).toBe(401);
-    expect((json() as { ok: boolean; error: { code: string } }).error.code).toBe("unauthenticated");
+    const cases = [
+      { method: "ops.rebuild", params: {} },
+      // Regression for panel「整合（执行）」→「未通过访问校验」when the webview omits Sec-Fetch-Site.
+      { method: "ops.consolidate", params: { dryRun: false } },
+      { method: "ops.flush", params: {} },
+      { method: "ops.compile", params: { target: "dsh" } },
+      { method: "config.put", params: { config: { llm: { mode: "stub" } } } },
+    ];
+    for (const c of cases) {
+      const { res, status, json } = mockRes();
+      await handler(
+        mockReq("POST", "/amem-api/rpc", {
+          body: JSON.stringify({ id: "1", method: c.method, params: c.params }),
+          headers: { origin: "http://127.0.0.1:7788", host: "127.0.0.1:7788" },
+        }),
+        res,
+      );
+      const body = json() as { ok?: boolean; error?: { code?: string } };
+      expect(status(), c.method).not.toBe(401);
+      expect(body.error?.code, c.method).not.toBe("unauthenticated");
+      expect(status(), c.method).toBe(200);
+      expect(body.ok, c.method).toBe(true);
+    }
   });
 
   /**
    * DSH embedded panel contract: fetch from the workbench UI often arrives as
    * Origin with an explicit port plus Sec-Fetch-Site: same-site (not same-origin).
-   * Regression for "未通过访问校验" on config save.
+   * Regression for "未通过访问校验" on config save / consolidate / other mutators.
    */
   function dshPanelHeaders(extra: Record<string, string> = {}): Record<string, string> {
     return {
@@ -284,8 +297,12 @@ describe("/amem-api independent auth routes", () => {
     const cases: Array<{ method: string; params: Record<string, unknown>; expectOk: boolean }> = [
       { method: "config.put", params: { config: { llm: { mode: "external" } } }, expectOk: true },
       { method: "ops.rebuild", params: {}, expectOk: true },
+      { method: "ops.consolidate", params: { dryRun: false }, expectOk: true },
+      { method: "ops.flush", params: {}, expectOk: true },
+      { method: "ops.compile", params: { target: "dsh" }, expectOk: true },
       // Domain miss is fine; this case only guards against access-check 401.
       { method: "memory.forget", params: { id: "mem_nonexistent" }, expectOk: false },
+      { method: "proposal.apply", params: { id: "missing", skillName: "x" }, expectOk: false },
     ];
     for (const c of cases) {
       const { res, status, json } = mockRes();

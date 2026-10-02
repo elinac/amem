@@ -189,7 +189,7 @@ P0 scope：
 
 页面刷新后允许凭 HttpOnly 会话通过 `POST /amem-api/auth/csrf` 领取新的短 CSRF token。`DELETE /amem-api/auth/session` 使当前会话失效。服务重启使全部短会话失效，用户重新解锁。
 
-启用 auth 时，所有 RPC 都要求有效会话 cookie；变更方法额外要求 CSRF 头（规范名 `X-CSRF-Token`，兼容遗留 `X-Amem-Csrf`）、Origin/Host 本机校验与 `Sec-Fetch-Site: same-origin|same-site|none`（DSH 嵌入面板常发 `same-site`）。关闭 auth 时，RPC 使用本机管理身份，但仍要求本机 Origin/Host；变更方法同样要求上述 `Sec-Fetch-Site`（**缺省头拒绝**）。不发送任何 `Access-Control-Allow-Origin`。允许的 DSH origin 在配置中列出；loopback 允许省略端口匹配同主机；远程使用必须显式配置 HTTPS origin。
+启用 auth 时，所有 RPC 都要求有效会话 cookie；变更方法额外要求 CSRF 头（规范名 `X-CSRF-Token`，兼容遗留 `X-Amem-Csrf`）、Origin/Host 本机校验与 `Sec-Fetch-Site: same-origin|same-site|none`（DSH 嵌入面板常发 `same-site`；缺省头拒绝）。关闭 auth 时，RPC 使用本机管理身份，并要求本机 Origin/Host；变更方法若带 `Sec-Fetch-Site` 则须为 `same-origin|same-site|none`（**缺省头允许**——嵌入工作台常不发该头，且页面 JS 无法伪造），显式 `cross-site` 仍拒绝。不发送任何 `Access-Control-Allow-Origin`。允许的 DSH origin 在配置中列出；loopback 允许省略端口匹配同主机；远程使用必须显式配置 HTTPS origin。
 
 ### 6.4 RPC 契约
 
