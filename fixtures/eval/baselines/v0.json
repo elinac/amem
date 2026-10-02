@@ -1,0 +1,943 @@
+{
+  "generated_at": "2026-10-02T05:26:00.708Z",
+  "gates": {
+    "k": 8,
+    "minPrecisionAtK": 0.5,
+    "maxHarmfulInjectionRate": 0.02,
+    "maxConflictExposureRate": 0.15,
+    "minBudgetUtilization": 0.4,
+    "maxBudgetUtilization": 0.95,
+    "thinPackBudgetUtilization": 0.15,
+    "rollbackDeltaPrecision": -0.05,
+    "rollbackHarmfulAbsIncrease": 0.01
+  },
+  "metrics": {
+    "k": 8,
+    "channel": "fts+tags",
+    "cases": 52,
+    "precision_at_k": 0.5139423076923076,
+    "recall_at_k": 0.9807692307692307,
+    "harmful_injection_rate": 0,
+    "conflict_exposure_rate": 0.05032051282051282,
+    "budget_utilization": 0.03009615384615385,
+    "budget_drop_count": 0
+  },
+  "per_case": [
+    {
+      "id": "j_port",
+      "precision_at_k": 0.125,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.06888888888888889,
+      "retrieved": [
+        "mem_port",
+        "mem_pnpm",
+        "mem_tspaths",
+        "mem_docker",
+        "mem_global_logging",
+        "mem_migrate",
+        "mem_noise_hr",
+        "mem_harm_disable_auth"
+      ],
+      "injectable": [
+        "mem_port",
+        "mem_pnpm",
+        "mem_tspaths",
+        "mem_docker",
+        "mem_global_logging",
+        "mem_migrate",
+        "mem_noise_hr"
+      ]
+    },
+    {
+      "id": "j_migrate",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.015,
+      "retrieved": [
+        "mem_migrate"
+      ],
+      "injectable": [
+        "mem_migrate"
+      ]
+    },
+    {
+      "id": "j_hmr",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.025555555555555557,
+      "retrieved": [
+        "mem_hmr",
+        "mem_nginx"
+      ],
+      "injectable": [
+        "mem_hmr",
+        "mem_nginx"
+      ]
+    },
+    {
+      "id": "j_pnpm",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.011111111111111112,
+      "retrieved": [
+        "mem_pnpm"
+      ],
+      "injectable": [
+        "mem_pnpm"
+      ]
+    },
+    {
+      "id": "j_tspaths",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.025,
+      "retrieved": [
+        "mem_tspaths",
+        "mem_hmr"
+      ],
+      "injectable": [
+        "mem_tspaths",
+        "mem_hmr"
+      ]
+    },
+    {
+      "id": "j_sqlite",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.012777777777777779,
+      "retrieved": [
+        "mem_sqlite"
+      ],
+      "injectable": [
+        "mem_sqlite"
+      ]
+    },
+    {
+      "id": "j_csrf",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.02722222222222222,
+      "retrieved": [
+        "mem_csrf",
+        "mem_noise_hr"
+      ],
+      "injectable": [
+        "mem_csrf",
+        "mem_noise_hr"
+      ]
+    },
+    {
+      "id": "j_effect",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.013888888888888888,
+      "retrieved": [
+        "mem_effect"
+      ],
+      "injectable": [
+        "mem_effect"
+      ]
+    },
+    {
+      "id": "j_docker",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.03888888888888889,
+      "retrieved": [
+        "mem_docker",
+        "mem_port",
+        "mem_instance_only"
+      ],
+      "injectable": [
+        "mem_docker",
+        "mem_port",
+        "mem_instance_only"
+      ]
+    },
+    {
+      "id": "j_rebase",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.027777777777777776,
+      "retrieved": [
+        "mem_rebase",
+        "mem_prettier",
+        "mem_harm_force_push"
+      ],
+      "injectable": [
+        "mem_rebase",
+        "mem_prettier"
+      ]
+    },
+    {
+      "id": "j_oauth",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.015,
+      "retrieved": [
+        "mem_oauth"
+      ],
+      "injectable": [
+        "mem_oauth"
+      ]
+    },
+    {
+      "id": "j_zod",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.02722222222222222,
+      "retrieved": [
+        "mem_zod",
+        "mem_migrate"
+      ],
+      "injectable": [
+        "mem_zod",
+        "mem_migrate"
+      ]
+    },
+    {
+      "id": "j_eslint",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.03944444444444444,
+      "retrieved": [
+        "mem_eslint",
+        "mem_prettier",
+        "mem_biome"
+      ],
+      "injectable": [
+        "mem_eslint",
+        "mem_prettier",
+        "mem_biome"
+      ]
+    },
+    {
+      "id": "j_prettier",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.02722222222222222,
+      "retrieved": [
+        "mem_prettier",
+        "mem_eslint"
+      ],
+      "injectable": [
+        "mem_prettier",
+        "mem_eslint"
+      ]
+    },
+    {
+      "id": "j_jest",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.012222222222222223,
+      "retrieved": [
+        "mem_jest"
+      ],
+      "injectable": [
+        "mem_jest"
+      ]
+    },
+    {
+      "id": "j_vitest",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.015,
+      "retrieved": [
+        "mem_vitest"
+      ],
+      "injectable": [
+        "mem_vitest"
+      ]
+    },
+    {
+      "id": "j_nginx",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.025555555555555557,
+      "retrieved": [
+        "mem_nginx",
+        "mem_hmr"
+      ],
+      "injectable": [
+        "mem_nginx",
+        "mem_hmr"
+      ]
+    },
+    {
+      "id": "j_redis",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.5,
+      "budget_utilization": 0.014444444444444444,
+      "retrieved": [
+        "mem_redis",
+        "mem_mutex_b"
+      ],
+      "injectable": [
+        "mem_redis"
+      ]
+    },
+    {
+      "id": "j_kafka",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.014444444444444444,
+      "retrieved": [
+        "mem_kafka"
+      ],
+      "injectable": [
+        "mem_kafka"
+      ]
+    },
+    {
+      "id": "j_k8s",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.013333333333333334,
+      "retrieved": [
+        "mem_k8s"
+      ],
+      "injectable": [
+        "mem_k8s"
+      ]
+    },
+    {
+      "id": "j_tls",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.012222222222222223,
+      "retrieved": [
+        "mem_tls"
+      ],
+      "injectable": [
+        "mem_tls"
+      ]
+    },
+    {
+      "id": "j_cors",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.01611111111111111,
+      "retrieved": [
+        "mem_cors"
+      ],
+      "injectable": [
+        "mem_cors"
+      ]
+    },
+    {
+      "id": "j_biome",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.03888888888888889,
+      "retrieved": [
+        "mem_biome",
+        "mem_eslint",
+        "mem_tspaths"
+      ],
+      "injectable": [
+        "mem_biome",
+        "mem_eslint",
+        "mem_tspaths"
+      ]
+    },
+    {
+      "id": "j_playwright",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.013333333333333334,
+      "retrieved": [
+        "mem_playwright"
+      ],
+      "injectable": [
+        "mem_playwright"
+      ]
+    },
+    {
+      "id": "j_rate",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.03,
+      "retrieved": [
+        "mem_rate_limit",
+        "mem_cors"
+      ],
+      "injectable": [
+        "mem_rate_limit",
+        "mem_cors"
+      ]
+    },
+    {
+      "id": "j_logging",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.015,
+      "retrieved": [
+        "mem_global_logging"
+      ],
+      "injectable": [
+        "mem_global_logging"
+      ]
+    },
+    {
+      "id": "j_port2",
+      "precision_at_k": 0,
+      "recall_at_k": 0,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.011666666666666667,
+      "retrieved": [
+        "mem_hmr"
+      ],
+      "injectable": [
+        "mem_hmr"
+      ]
+    },
+    {
+      "id": "j_docker2",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.042222222222222223,
+      "retrieved": [
+        "mem_docker",
+        "mem_effect",
+        "mem_cors"
+      ],
+      "injectable": [
+        "mem_docker",
+        "mem_effect",
+        "mem_cors"
+      ]
+    },
+    {
+      "id": "j_csrf2",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.03,
+      "retrieved": [
+        "mem_csrf",
+        "mem_oauth"
+      ],
+      "injectable": [
+        "mem_csrf",
+        "mem_oauth"
+      ]
+    },
+    {
+      "id": "j_sqlite2",
+      "precision_at_k": 0.25,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.041666666666666664,
+      "retrieved": [
+        "mem_migrate",
+        "mem_sqlite",
+        "mem_port",
+        "mem_harm_force_push"
+      ],
+      "injectable": [
+        "mem_migrate",
+        "mem_sqlite",
+        "mem_port"
+      ]
+    },
+    {
+      "id": "j_oauth2",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.02722222222222222,
+      "retrieved": [
+        "mem_oauth",
+        "mem_jest"
+      ],
+      "injectable": [
+        "mem_oauth",
+        "mem_jest"
+      ]
+    },
+    {
+      "id": "j_noise_hr",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.02722222222222222,
+      "retrieved": [
+        "mem_noise_hr",
+        "mem_global_logging"
+      ],
+      "injectable": [
+        "mem_noise_hr",
+        "mem_global_logging"
+      ]
+    },
+    {
+      "id": "j_noise_food",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.023333333333333334,
+      "retrieved": [
+        "mem_noise_food",
+        "mem_prettier"
+      ],
+      "injectable": [
+        "mem_noise_food",
+        "mem_prettier"
+      ]
+    },
+    {
+      "id": "j_noise_cdn",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.008888888888888889,
+      "retrieved": [
+        "mem_noise_cdn"
+      ],
+      "injectable": [
+        "mem_noise_cdn"
+      ]
+    },
+    {
+      "id": "j_cross_port",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.03888888888888889,
+      "retrieved": [
+        "mem_port",
+        "mem_docker",
+        "mem_instance_only"
+      ],
+      "injectable": [
+        "mem_port",
+        "mem_docker",
+        "mem_instance_only"
+      ]
+    },
+    {
+      "id": "j_cross_auth",
+      "precision_at_k": 0.2,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.4,
+      "budget_utilization": 0.027777777777777776,
+      "retrieved": [
+        "mem_csrf",
+        "mem_mutex_b",
+        "mem_mutex_a",
+        "mem_harm_disable_auth",
+        "mem_instance_only"
+      ],
+      "injectable": [
+        "mem_csrf",
+        "mem_instance_only"
+      ]
+    },
+    {
+      "id": "j_lock_conflict",
+      "precision_at_k": 0,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.3333333333333333,
+      "budget_utilization": 0.04888888888888889,
+      "retrieved": [
+        "mem_mutex_b",
+        "mem_mutex_a",
+        "mem_sqlite",
+        "mem_migrate",
+        "mem_effect",
+        "mem_redis"
+      ],
+      "injectable": [
+        "mem_sqlite",
+        "mem_migrate",
+        "mem_effect",
+        "mem_redis"
+      ]
+    },
+    {
+      "id": "j_lock_pg",
+      "precision_at_k": 0.2,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.4,
+      "budget_utilization": 0.025555555555555557,
+      "retrieved": [
+        "mem_mutex_a",
+        "mem_mutex_b",
+        "mem_sqlite",
+        "mem_harm_disable_auth",
+        "mem_instance_only"
+      ],
+      "injectable": [
+        "mem_sqlite",
+        "mem_instance_only"
+      ]
+    },
+    {
+      "id": "j_lock_redis",
+      "precision_at_k": 0.16666666666666666,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.3333333333333333,
+      "budget_utilization": 0.04111111111111111,
+      "retrieved": [
+        "mem_mutex_b",
+        "mem_redis",
+        "mem_sqlite",
+        "mem_nginx",
+        "mem_mutex_a",
+        "mem_harm_disable_auth"
+      ],
+      "injectable": [
+        "mem_redis",
+        "mem_sqlite",
+        "mem_nginx"
+      ]
+    },
+    {
+      "id": "j_harm_push",
+      "precision_at_k": 0,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.06111111111111111,
+      "retrieved": [
+        "mem_harm_force_push",
+        "mem_rebase",
+        "mem_harm_rm_rf",
+        "mem_effect",
+        "mem_zod",
+        "mem_prettier",
+        "mem_eslint",
+        "mem_rate_limit"
+      ],
+      "injectable": [
+        "mem_rebase",
+        "mem_effect",
+        "mem_zod",
+        "mem_prettier",
+        "mem_eslint",
+        "mem_rate_limit"
+      ]
+    },
+    {
+      "id": "j_harm_auth",
+      "precision_at_k": 0,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.06222222222222222,
+      "retrieved": [
+        "mem_global_logging",
+        "mem_harm_disable_auth",
+        "mem_pnpm",
+        "mem_migrate",
+        "mem_noise_hr",
+        "mem_tspaths",
+        "mem_port"
+      ],
+      "injectable": [
+        "mem_global_logging",
+        "mem_pnpm",
+        "mem_migrate",
+        "mem_noise_hr",
+        "mem_tspaths",
+        "mem_port"
+      ]
+    },
+    {
+      "id": "j_harm_disk",
+      "precision_at_k": 0,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.028888888888888888,
+      "retrieved": [
+        "mem_harm_rm_rf",
+        "mem_migrate",
+        "mem_port",
+        "mem_harm_force_push"
+      ],
+      "injectable": [
+        "mem_migrate",
+        "mem_port"
+      ]
+    },
+    {
+      "id": "j_harm_push2",
+      "precision_at_k": 0,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.013888888888888888,
+      "retrieved": [
+        "mem_harm_force_push",
+        "mem_port",
+        "mem_harm_rm_rf"
+      ],
+      "injectable": [
+        "mem_port"
+      ]
+    },
+    {
+      "id": "j_format",
+      "precision_at_k": 0.25,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.07388888888888889,
+      "retrieved": [
+        "mem_prettier",
+        "mem_noise_food",
+        "mem_effect",
+        "mem_zod",
+        "mem_rebase",
+        "mem_eslint",
+        "mem_rate_limit",
+        "mem_cors"
+      ],
+      "injectable": [
+        "mem_prettier",
+        "mem_noise_food",
+        "mem_effect",
+        "mem_zod",
+        "mem_rebase",
+        "mem_eslint",
+        "mem_rate_limit",
+        "mem_cors"
+      ]
+    },
+    {
+      "id": "j_proxy_ws",
+      "precision_at_k": 0.3333333333333333,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.06,
+      "retrieved": [
+        "mem_nginx",
+        "mem_hmr",
+        "mem_biome",
+        "mem_tls",
+        "mem_eslint",
+        "mem_port"
+      ],
+      "injectable": [
+        "mem_nginx",
+        "mem_hmr",
+        "mem_biome",
+        "mem_tls",
+        "mem_eslint",
+        "mem_port"
+      ]
+    },
+    {
+      "id": "j_ts_tooling",
+      "precision_at_k": 0.25,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.07555555555555556,
+      "retrieved": [
+        "mem_tspaths",
+        "mem_biome",
+        "mem_eslint",
+        "mem_hmr",
+        "mem_global_logging",
+        "mem_k8s",
+        "mem_tls",
+        "mem_redis"
+      ],
+      "injectable": [
+        "mem_tspaths",
+        "mem_biome",
+        "mem_eslint",
+        "mem_hmr",
+        "mem_global_logging",
+        "mem_k8s",
+        "mem_tls",
+        "mem_redis"
+      ]
+    },
+    {
+      "id": "j_instance_port",
+      "precision_at_k": 0.125,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.25,
+      "budget_utilization": 0.05444444444444444,
+      "retrieved": [
+        "mem_instance_only",
+        "mem_port",
+        "mem_docker",
+        "mem_mutex_b",
+        "mem_zod",
+        "mem_mutex_a",
+        "mem_cors",
+        "mem_harm_disable_auth"
+      ],
+      "injectable": [
+        "mem_instance_only",
+        "mem_port",
+        "mem_docker",
+        "mem_zod",
+        "mem_cors"
+      ]
+    },
+    {
+      "id": "j_pnpm2",
+      "precision_at_k": 0.2,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0.4,
+      "budget_utilization": 0.02388888888888889,
+      "retrieved": [
+        "mem_pnpm",
+        "mem_mutex_b",
+        "mem_mutex_a",
+        "mem_harm_disable_auth",
+        "mem_instance_only"
+      ],
+      "injectable": [
+        "mem_pnpm",
+        "mem_instance_only"
+      ]
+    },
+    {
+      "id": "j_zod2",
+      "precision_at_k": 0.125,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.06722222222222222,
+      "retrieved": [
+        "mem_zod",
+        "mem_noise_food",
+        "mem_docker",
+        "mem_playwright",
+        "mem_vitest",
+        "mem_csrf",
+        "mem_eslint",
+        "mem_rate_limit"
+      ],
+      "injectable": [
+        "mem_zod",
+        "mem_noise_food",
+        "mem_docker",
+        "mem_playwright",
+        "mem_vitest",
+        "mem_csrf",
+        "mem_eslint",
+        "mem_rate_limit"
+      ]
+    },
+    {
+      "id": "j_k8s2",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.013333333333333334,
+      "retrieved": [
+        "mem_k8s"
+      ],
+      "injectable": [
+        "mem_k8s"
+      ]
+    },
+    {
+      "id": "j_tls2",
+      "precision_at_k": 1,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.012222222222222223,
+      "retrieved": [
+        "mem_tls"
+      ],
+      "injectable": [
+        "mem_tls"
+      ]
+    },
+    {
+      "id": "j_rate2",
+      "precision_at_k": 0.5,
+      "recall_at_k": 1,
+      "harmful_injection_rate": 0,
+      "conflict_exposure_rate": 0,
+      "budget_utilization": 0.028333333333333332,
+      "retrieved": [
+        "mem_redis",
+        "mem_rate_limit"
+      ],
+      "injectable": [
+        "mem_redis",
+        "mem_rate_limit"
+      ]
+    }
+  ]
+}

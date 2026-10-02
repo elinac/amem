@@ -1,3 +1,3 @@
 # Generated eval runs (frozen baselines are committed explicitly as v0.json etc.)
-fixtures/eval/baselines/latest.json
-fixtures/eval/baselines/ablation-latest.json
+baselines/latest.json
+baselines/ablation-latest.json

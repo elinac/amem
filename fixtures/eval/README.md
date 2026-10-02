@@ -11,3 +11,5 @@ Offline recall-effectiveness corpus, judgments, baselines, and signal samples.
 | `schema/` | JSON Schema for corpus and judgment lines |
 
 Do not commit real `~/.amem` exports or unredacted transcripts. Raw dumps (if ever local) belong outside git.
+
+Frozen quality baseline: `baselines/v0.json`. Spec: [memory-effectiveness-eval](../../docs/superpowers/specs/2026-10-02-memory-effectiveness-eval.md).

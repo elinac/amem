@@ -8,6 +8,7 @@
 | [specs/2026-10-01-dsh-admin-auth-default-off-design.md](superpowers/specs/2026-10-01-dsh-admin-auth-default-off-design.md) | DSH admin auth default-off |
 | [specs/2026-10-01-memory-proposal-skill-path-waves.md](superpowers/specs/2026-10-01-memory-proposal-skill-path-waves.md) | Memory→Proposal→Skill path waves |
 | [specs/2026-10-01-recall-governance-and-dsh-workbench-design.md](superpowers/specs/2026-10-01-recall-governance-and-dsh-workbench-design.md) | Recall governance & workbench (planned; conflict injection still follows older §8.2) |
+| [specs/2026-10-02-memory-effectiveness-eval.md](superpowers/specs/2026-10-02-memory-effectiveness-eval.md) | Offline memory-effectiveness eval: P@K, A/B rollback, channel ablation |
 | [plans/2026-09-26-amem-implementation.md](superpowers/plans/2026-09-26-amem-implementation.md) | Implementation plan (P0–P2) |
 | [plans/2026-09-27-dsh-panel-config.md](superpowers/plans/2026-09-27-dsh-panel-config.md) | DSH Config panel plan |
 | [plans/2026-09-27-dsh-panel-ops-help.md](superpowers/plans/2026-09-27-dsh-panel-ops-help.md) | DSH Ops/Help plan |

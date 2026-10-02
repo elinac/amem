@@ -17,6 +17,7 @@
     "eval:recall": "node scripts/eval-recall.mjs",
     "eval:ab": "node scripts/eval-ab.mjs",
     "eval:ablate": "node scripts/eval-recall.mjs --ablate",
+    "eval:signals": "node scripts/eval-signals.mjs",
     "lint": "biome check packages scripts docs/README.md GLOSSARY.md CHANGELOG.md biome.json",
     "lint:fix": "biome check --write packages scripts docs/README.md GLOSSARY.md CHANGELOG.md biome.json",
     "amem": "node packages/cli/dist/bin.js"
