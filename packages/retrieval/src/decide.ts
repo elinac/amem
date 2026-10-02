@@ -4,13 +4,28 @@ export type RecallMode = "shadow" | "assist" | "enforce";
 
 export type RecallDecisionKind = "use" | "verify" | "ignore";
 
-export type RecallHit = { memory: MemoryRecord; score: number };
+/** Additive score breakdown (weights unchanged from scoreMemory). */
+export type ScoreParts = {
+  rel: number;
+  tag: number;
+  trust: number;
+  lift: number;
+  levelAdj: number;
+};
+
+export type RecallHit = {
+  memory: MemoryRecord;
+  score: number;
+  /** Present when hit came from explainScore / recall. */
+  parts?: ScoreParts;
+};
 
 export type RecallDecision = {
   memory: MemoryRecord;
   score: number;
   decision: RecallDecisionKind;
   reason: string;
+  parts?: ScoreParts;
 };
 
 const VERIFY_SCORE_MIN = 0.25;
@@ -26,28 +41,33 @@ export function decideRecall(
 ): RecallDecision[] {
   return hits.map((h) => {
     const m = h.memory;
+    const base = {
+      memory: m,
+      score: h.score,
+      ...(h.parts ? { parts: h.parts } : {}),
+    };
     if (m.status === "conflict") {
-      return { ...h, decision: "ignore" as const, reason: "status_conflict" };
+      return { ...base, decision: "ignore" as const, reason: "status_conflict" };
     }
     if (m.status !== "active") {
-      return { ...h, decision: "ignore" as const, reason: `status_${m.status}` };
+      return { ...base, decision: "ignore" as const, reason: `status_${m.status}` };
     }
     if ((m.conflicts_with ?? []).length > 0) {
-      return { ...h, decision: "ignore" as const, reason: "pending_conflicts_with" };
+      return { ...base, decision: "ignore" as const, reason: "pending_conflicts_with" };
     }
     if (m.stats.harmful >= 2) {
-      return { ...h, decision: "ignore" as const, reason: "harmful_gate" };
+      return { ...base, decision: "ignore" as const, reason: "harmful_gate" };
     }
     if (h.score < VERIFY_SCORE_MIN) {
-      return { ...h, decision: "ignore" as const, reason: "score_low" };
+      return { ...base, decision: "ignore" as const, reason: "score_low" };
     }
     if (h.score < USE_SCORE_MIN || m.trust === "T3") {
       if (mode === "enforce") {
-        return { ...h, decision: "ignore" as const, reason: "enforce_skips_verify" };
+        return { ...base, decision: "ignore" as const, reason: "enforce_skips_verify" };
       }
-      return { ...h, decision: "verify" as const, reason: "needs_verify" };
+      return { ...base, decision: "verify" as const, reason: "needs_verify" };
     }
-    return { ...h, decision: "use" as const, reason: "eligible" };
+    return { ...base, decision: "use" as const, reason: "eligible" };
   });
 }
 

@@ -13,7 +13,7 @@ import {
 import { IndexStore, MemoryStore } from "@amem/store";
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
-import { decideRecall, injectableDecisions } from "./decide.js";
+import { decideRecall, injectableDecisions, type ScoreParts } from "./decide.js";
 
 function estimateTokens(text: string): number {
   return Math.max(1, Math.ceil(text.length / 4));
@@ -40,13 +40,33 @@ function textRelevance(ftsRank: number | null): number {
   return 0.5 + 0.5 * (strength / (1 + strength));
 }
 
-export function scoreMemory(
+/** Additive score breakdown (weights unchanged from scoreMemory). */
+export type { ScoreParts };
+
+export type ScoredHit = {
+  memory: MemoryRecord;
+  score: number;
+  parts: ScoreParts;
+};
+
+/**
+ * Explain lexical score without changing weights.
+ * Hard exclusions return score -999 with zeroed parts.
+ */
+export function explainScore(
   m: MemoryRecord,
   situation: Situation,
   ftsRank: number | null,
-): number {
+): ScoredHit {
+  const zero: ScoreParts = { rel: 0, tag: 0, trust: 0, lift: 0, levelAdj: 0 };
+  if (m.kind === "preference" && m.scope.tags.user !== situation.user_id) {
+    return { memory: m, score: -999, parts: zero };
+  }
+  if (m.status === "frozen" || m.status === "expired" || m.status === "superseded") {
+    return { memory: m, score: -999, parts: zero };
+  }
   const rel = textRelevance(ftsRank);
-  const tag = tagOverlap(m, situation);
+  const tagRaw = tagOverlap(m, situation);
   const trustW = m.trust === "T1" ? 1 : m.trust === "T2" ? 0.7 : 0.4;
   let levelAdj = 0;
   if (m.scope.level === "instance") {
@@ -55,15 +75,23 @@ export function scoreMemory(
         ? 0.1
         : -0.2;
   }
-  if (m.kind === "preference" && m.scope.tags.user !== situation.user_id) return -999;
-  if (m.status === "frozen" || m.status === "expired" || m.status === "superseded") return -999;
-  return (
-    0.6 * rel +
-    0.15 * Math.min(1, tag) +
-    0.1 * trustW +
-    0.1 * Math.max(-1, Math.min(1, m.stats.lift)) +
-    levelAdj
-  );
+  const parts: ScoreParts = {
+    rel: 0.6 * rel,
+    tag: 0.15 * Math.min(1, tagRaw),
+    trust: 0.1 * trustW,
+    lift: 0.1 * Math.max(-1, Math.min(1, m.stats.lift)),
+    levelAdj,
+  };
+  const score = parts.rel + parts.tag + parts.trust + parts.lift + parts.levelAdj;
+  return { memory: m, score, parts };
+}
+
+export function scoreMemory(
+  m: MemoryRecord,
+  situation: Situation,
+  ftsRank: number | null,
+): number {
+  return explainScore(m, situation, ftsRank).score;
 }
 
 export type RecallChannels = "fts" | "tags" | "fts+tags";
@@ -73,7 +101,7 @@ export function recall(
   situation: Situation,
   k = 8,
   opts?: { channels?: RecallChannels },
-): { memory: MemoryRecord; score: number }[] {
+): ScoredHit[] {
   const channels = opts?.channels ?? "fts+tags";
   const useFts = channels === "fts" || channels === "fts+tags";
   const useTags = channels === "tags" || channels === "fts+tags";
@@ -85,16 +113,16 @@ export function recall(
     /* degraded: search may return empty until next rebuild */
   }
   const byId = new Map(store.listAll().map((m) => [m.id, m]));
-  const scored: { memory: MemoryRecord; score: number }[] = [];
+  const scored: ScoredHit[] = [];
   if (useFts) {
     const hits = idx.searchFts(situation.query, 50);
     for (const h of hits) {
       const m = byId.get(h.id);
       if (!m) continue;
       if (m.status !== "active" && m.status !== "conflict") continue;
-      const score = scoreMemory(m, situation, h.rank);
-      if (score <= -100) continue;
-      scored.push({ memory: m, score });
+      const explained = explainScore(m, situation, h.rank);
+      if (explained.score <= -100) continue;
+      scored.push(explained);
     }
   }
   idx.close();
@@ -103,8 +131,8 @@ export function recall(
       if (scored.some((s) => s.memory.id === m.id)) continue;
       if (m.status !== "active" && m.status !== "conflict") continue;
       if (tagOverlap(m, situation) === 0) continue;
-      const score = scoreMemory(m, situation, null);
-      if (score > 0.15) scored.push({ memory: m, score });
+      const explained = explainScore(m, situation, null);
+      if (explained.score > 0.15) scored.push(explained);
     }
   }
   scored.sort((a, b) => {
